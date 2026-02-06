@@ -18,15 +18,19 @@ OpenClaw agents have a limited context window. When conversations get too long, 
 
 Your agent literally **cannot remember** what happened before the last compaction. It's not being forgetful — that information simply isn't available to it anymore.
 
-### Why OpenClaw Doesn't Already Solve This
+### What OpenClaw Already Has (and What It's Missing)
 
-OpenClaw archives your conversations to `~/.openclaw/agents-archive/` — but **your agent can't search them**. Those archives are just JSON files sitting on disk. There's no built-in way for your agent to:
+OpenClaw **does** have a built-in `memory_search` tool that searches:
+- ✅ Current session files in `~/.openclaw/agents/*/sessions/`
+- ✅ Markdown files in your workspace (MEMORY.md, memory/*.md, etc.)
 
-- Search across archived sessions
-- Find what you discussed last month
-- Recall specific decisions or context
+**But here's the gap:** When sessions are archived to `~/.openclaw/agents-archive/`, the built-in tool **can't search them anymore**. Those archives are just JSON files sitting on disk — valuable conversation history that becomes invisible to your agent.
 
-**Claw Recall bridges this gap.** It indexes your archives into a searchable database and gives your agent a tool to query it.
+In a typical setup:
+- Current sessions: ~50-100 MB (recent conversations)
+- Archived sessions: **500+ MB** (weeks/months of history) ← *unsearchable!*
+
+**Claw Recall bridges this gap.** It indexes your archives into a searchable database, giving your agent access to ALL your conversation history, not just recent sessions.
 
 ## What You Get
 
