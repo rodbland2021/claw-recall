@@ -4,6 +4,19 @@
 
 Ever had your agent forget something important? Context compaction means your agent loses access to older conversations. Claw Recall fixes that — giving your agent the ability to search through ALL your past conversations, not just what's in the current context window.
 
+## 📑 Contents
+
+- [Using It With Your Bot](#using-it-with-your-bot-telegram-discord-etc) — Ask your bot naturally, get answers from past conversations
+- [Web Interface](#web-interface) — Visual search with highlighting
+- [CLI Usage](#cli-usage) — Command-line for power users
+- [Installation](#installation) — Setup in 5 steps
+- [Why You Need This](#why-you-need-this) — The compaction problem explained
+- [How It Works](#how-it-works) — Technical overview
+- [Multi-Agent Setup](#multi-agent-setup) — Shared database for teams
+- [Roadmap](#roadmap--future-enhancements) — What's coming next
+
+---
+
 ## Using It With Your Bot (Telegram, Discord, etc.)
 
 This is how most people will use Claw Recall — just ask your bot!
