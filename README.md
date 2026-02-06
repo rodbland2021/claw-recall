@@ -161,15 +161,21 @@ Command: cd ~/tools/recall && python index.py --source ~/.openclaw/agents-archiv
 
 ## Example Agent Interaction
 
-**You:** "What did we decide about the Facebook ad budget last week?"
+Here's what it looks like when you ask your bot about past conversations:
 
-**Agent's process:**
-1. Recognizes this needs historical context
-2. Runs: `./recall.py "Facebook ad budget" --semantic`
-3. Gets results from archived conversations
-4. Responds with the actual decision and context
+![Telegram Example](docs/telegram-example.png)
 
-**Agent:** "On February 2nd, we discussed the Facebook ad budget. You decided to start with $40/day for LYFER and $50/day for RBS retargeting campaigns..."
+**What's happening:**
+1. You ask: "What did we discuss about the website redesign last month?"
+2. The bot searches archived conversations using Claw Recall
+3. It finds relevant results with dates and context
+4. It summarizes the findings in a helpful response
+
+**Example prompts that trigger recall:**
+- "What did we decide about X last week?"
+- "Can you find that conversation where we discussed Y?"
+- "What was the budget we agreed on for the project?"
+- "Remind me what we talked about with [person/topic]"
 
 ## Web Interface
 
