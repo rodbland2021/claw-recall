@@ -42,10 +42,15 @@ cd $RECALL_PATH
 ./recall.py "what did we decide about X" --semantic  # Meaning-based search
 \`\`\`
 
-**Always include dates** in your response so the user knows when the conversation happened.
+**⚠️ IMPORTANT: Always include the date from the search results in your response.**
 
-Example response format:
-> I searched our conversation history. On **February 2nd**, we discussed [topic]...
+The search results include timestamps like \`2026-02-02T10:30\`. You MUST convert these to readable dates and include them in your answer so the user knows WHEN the conversation happened.
+
+✅ Correct response format:
+> I searched our conversation history. On **February 2nd**, we discussed [topic]. Then on **February 4th**, we decided [decision]...
+
+❌ Wrong (missing dates):
+> I searched our history. The budget was \$40/day...
 EOF
 
 echo "✅ Claw Recall added to $TOOLS_FILE"
