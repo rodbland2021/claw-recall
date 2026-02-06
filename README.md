@@ -245,6 +245,16 @@ ln -s ~/shared/convo-memory ~/clawd-darius/shared/convo-memory
 
 Now all agents search the same database.
 
+## Roadmap / Future Enhancements
+
+- [ ] **Deep linking to original messages** — Click search results to jump back to the original Telegram/Discord message (platform-dependent, WhatsApp/Signal don't support this)
+- [ ] **Real-time indexing** — Index conversations as they happen, not just from archives
+- [ ] **Embeddings caching** — Skip re-embedding unchanged messages
+- [ ] **Multi-user support** — Separate databases per user/workspace
+- [ ] **Export/backup** — Export search results to markdown
+
+PRs welcome! 🦞
+
 ## License
 
 MIT — Use freely, modify as needed.
