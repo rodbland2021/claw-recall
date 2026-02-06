@@ -259,9 +259,9 @@ HTML_TEMPLATE = """
                     <h3>🔤 Keyword Search (Default)</h3>
                     <p>Finds exact word matches. Best for specific terms.</p>
                     <div class="examples">
-                        <code>LYFER campaign</code>
-                        <code>pages_manage_posts</code>
-                        <code>Bryan notarisation</code>
+                        <code>project update</code>
+                        <code>meeting notes</code>
+                        <code>API integration</code>
                     </div>
                 </div>
                 
@@ -269,9 +269,9 @@ HTML_TEMPLATE = """
                     <h3>🧠 Semantic Search</h3>
                     <p>Understands meaning, finds related concepts. Enable the checkbox!</p>
                     <div class="examples">
-                        <code>what did we decide about Facebook ads</code>
-                        <code>how to edit long form videos</code>
-                        <code>conversation about tax debt</code>
+                        <code>what did we decide about the website</code>
+                        <code>how to handle customer requests</code>
+                        <code>conversation about project timeline</code>
                     </div>
                 </div>
                 
@@ -279,9 +279,9 @@ HTML_TEMPLATE = """
                     <h3>📁 File Search</h3>
                     <p>Searches playbooks, memory files, and docs across all agents.</p>
                     <div class="examples">
-                        <code>RUNBOOK B-roll</code>
-                        <code>playbook workflow</code>
-                        <code>Meta Ads creative</code>
+                        <code>setup guide</code>
+                        <code>deployment workflow</code>
+                        <code>configuration docs</code>
                     </div>
                 </div>
                 
@@ -289,9 +289,9 @@ HTML_TEMPLATE = """
                     <h3>🎯 Filter by Agent</h3>
                     <p>Narrow results to a specific agent's conversations/files.</p>
                     <div class="examples">
-                        <code>Cyrus → YouTube workflows</code>
-                        <code>Kit → Facebook posting</code>
-                        <code>Arthur → RBS operations</code>
+                        <code>main → primary assistant</code>
+                        <code>research → research tasks</code>
+                        <code>dev → coding projects</code>
                     </div>
                 </div>
             </div>
