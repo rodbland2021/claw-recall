@@ -1,0 +1,309 @@
+#!/usr/bin/env python3
+"""
+Claw Recall — Unified search across conversations AND markdown files.
+
+This is the main entry point for agents to search memory.
+Searches both:
+1. Conversation history (convo-memory database)
+2. Markdown files across all agent workspaces
+
+Auto-detects when semantic search is appropriate based on query structure.
+
+Usage:
+    ./recall.py "what did we discuss about playbooks"
+    ./recall.py "LYFER campaign" --agent main
+    ./recall.py "B-roll workflow" --files-only
+    ./recall.py "Facebook ads" --convos-only
+    ./recall.py "act_12345" --keyword          # Force keyword search
+"""
+
+import re
+
+import argparse
+import sys
+from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+# Add current dir to path
+sys.path.insert(0, str(Path(__file__).parent))
+
+from search import search_conversations, SearchResult, OPENAI_AVAILABLE
+from search_files import search_files, FileMatch
+
+
+def should_use_semantic(query: str) -> bool:
+    """
+    Auto-detect if semantic search is more appropriate for this query.
+    
+    Use KEYWORD search for:
+    - Short queries (1-2 words) that look like names/IDs
+    - Queries with IDs, account numbers, technical identifiers
+    - Quoted exact phrases
+    - File paths, URLs
+    - Code snippets
+    
+    Use SEMANTIC search for:
+    - Natural language questions
+    - Longer conceptual queries (4+ words)
+    - Abstract concepts without specific identifiers
+    """
+    query_lower = query.lower().strip()
+    words = query_lower.split()
+    
+    # Force keyword for quoted phrases (user wants exact match)
+    if query.startswith('"') and query.endswith('"'):
+        return False
+    
+    # Force keyword for IDs, account numbers, technical patterns
+    id_patterns = [
+        r'act_\d+',           # Facebook ad account IDs
+        r'\d{10,}',           # Long numbers (IDs)
+        r'UC[a-zA-Z0-9_-]+',  # YouTube channel IDs
+        r'[a-f0-9]{24,}',     # MongoDB-style IDs
+        r'\d+\.\d+\.\d+',     # Version numbers, IPs
+    ]
+    for pattern in id_patterns:
+        if re.search(pattern, query):
+            return False
+    
+    # Force keyword for file paths
+    if '/' in query or query.endswith('.md') or query.endswith('.py'):
+        return False
+    
+    # Short queries (1-2 words) → keyword unless they're question words
+    if len(words) <= 2:
+        question_starters = {'what', 'how', 'why', 'when', 'where', 'who', 'which'}
+        if not any(w in question_starters for w in words):
+            return False
+    
+    # Natural language questions → semantic
+    question_patterns = [
+        r'^(what|how|why|when|where|who|which)\b',
+        r'\?$',
+        r'(did we|have we|was there|were there)',
+        r'(discuss|talk|mention|say about)',
+    ]
+    for pattern in question_patterns:
+        if re.search(pattern, query_lower):
+            return True
+    
+    # Longer queries (4+ words) → likely conceptual, use semantic
+    if len(words) >= 4:
+        return True
+    
+    # Default: keyword for 3 words, semantic detection didn't trigger
+    return False
+
+
+def unified_search(
+    query: str,
+    agent: str = None,
+    semantic: bool = None,  # None = auto-detect
+    files_only: bool = False,
+    convos_only: bool = False,
+    limit: int = 10
+) -> dict:
+    """
+    Search both conversations and files in parallel.
+    
+    Returns:
+        {
+            "conversations": [...],
+            "files": [...],
+            "summary": "Found X conversation matches and Y file matches"
+        }
+    """
+    results = {
+        "conversations": [],
+        "files": [],
+        "summary": ""
+    }
+    
+    def search_convos():
+        try:
+            # Auto-detect semantic vs keyword if not explicitly set
+            use_semantic = semantic if semantic is not None else should_use_semantic(query)
+            
+            convo_results = search_conversations(
+                query=query,
+                agent=agent,
+                semantic=use_semantic,
+                limit=limit
+            )
+            # Deduplicate
+            seen = set()
+            convos = []
+            for r in convo_results:
+                fingerprint = f"{r.role}:{r.content[:200]}"
+                if fingerprint not in seen:
+                    seen.add(fingerprint)
+                    convos.append({
+                        "agent": r.agent_id,
+                        "channel": r.channel,
+                        "role": r.role,
+                        "content": r.content[:500],
+                        "timestamp": r.timestamp.isoformat() if r.timestamp else None,
+                        "score": round(r.score, 3)
+                    })
+            return convos
+        except Exception as e:
+            return [{"error": str(e)}]
+    
+    def search_docs():
+        try:
+            file_results = search_files(
+                query=query,
+                agent=agent,
+                limit=limit
+            )
+            return [
+                {
+                    "path": r.path.replace('/home/clawdbot/', '~/'),
+                    "agent": r.agent,
+                    "line_num": r.line_num,
+                    "line": r.line[:300],
+                    "score": round(r.score, 3)
+                }
+                for r in file_results
+            ]
+        except Exception as e:
+            return [{"error": str(e)}]
+    
+    # Run searches in parallel
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = {}
+        
+        if not files_only:
+            futures['convos'] = executor.submit(search_convos)
+        if not convos_only:
+            futures['files'] = executor.submit(search_docs)
+        
+        for key, future in futures.items():
+            try:
+                if key == 'convos':
+                    results["conversations"] = future.result(timeout=30)
+                else:
+                    results["files"] = future.result(timeout=30)
+            except Exception as e:
+                if key == 'convos':
+                    results["conversations"] = [{"error": str(e)}]
+                else:
+                    results["files"] = [{"error": str(e)}]
+    
+    # Summary
+    conv_count = len([r for r in results["conversations"] if "error" not in r])
+    file_count = len([r for r in results["files"] if "error" not in r])
+    results["summary"] = f"Found {conv_count} conversation matches and {file_count} file matches"
+    
+    return results
+
+
+def format_unified_results(results: dict, verbose: bool = False) -> str:
+    """Format unified search results for display."""
+    output = []
+    
+    # Conversations
+    if results["conversations"]:
+        output.append("\n" + "="*60)
+        output.append("📝 CONVERSATIONS")
+        output.append("="*60)
+        
+        for i, r in enumerate(results["conversations"][:5], 1):
+            if "error" in r:
+                output.append(f"  Error: {r['error']}")
+                continue
+            ts = r.get('timestamp', 'unknown')[:16] if r.get('timestamp') else 'unknown'
+            content = r['content'][:150] + "..." if len(r.get('content', '')) > 150 else r.get('content', '')
+            output.append(f"\n#{i} | {r['agent']} | {r['channel']} | {ts}")
+            output.append(f"   [{r['role']}] {content}")
+    
+    # Files
+    if results["files"]:
+        output.append("\n" + "="*60)
+        output.append("📁 FILES")
+        output.append("="*60)
+        
+        for i, r in enumerate(results["files"][:5], 1):
+            if "error" in r:
+                output.append(f"  Error: {r['error']}")
+                continue
+            output.append(f"\n#{i} | {r['agent']} | {r['path']}:{r['line_num']}")
+            output.append(f"   → {r['line'][:150]}")
+    
+    output.append(f"\n📊 {results['summary']}")
+    
+    return '\n'.join(output)
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog='claw-recall',
+        description='🦞 Claw Recall — Search conversations AND files across all agents',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+    ./recall.py "what did we discuss about playbooks"   # Auto: semantic
+    ./recall.py "LYFER"                                  # Auto: keyword (short)
+    ./recall.py "act_12345" --keyword                    # Force keyword
+    ./recall.py "B-roll workflow" --agent cyrus
+    ./recall.py "Facebook ads" --files-only
+        """
+    )
+    parser.add_argument('query', nargs='+', help='Search query')
+    parser.add_argument('--agent', '-a', help='Filter by agent (main, cyrus, etc.)')
+    
+    # Mutually exclusive: semantic vs keyword (default: auto-detect)
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument('--semantic', '-s', action='store_true', help='Force semantic search')
+    mode_group.add_argument('--keyword', '-k', action='store_true', help='Force keyword search')
+    
+    parser.add_argument('--files-only', '-f', action='store_true', help='Only search files')
+    parser.add_argument('--convos-only', '-c', action='store_true', help='Only search conversations')
+    parser.add_argument('--limit', '-n', type=int, default=10, help='Max results per category')
+    parser.add_argument('--verbose', '-v', action='store_true', help='Show more context')
+    parser.add_argument('--json', '-j', action='store_true', help='Output as JSON')
+    
+    args = parser.parse_args()
+    query = ' '.join(args.query)
+    
+    # Determine semantic mode: explicit flag or auto-detect
+    if args.semantic:
+        semantic = True
+        mode_str = "semantic (forced)"
+    elif args.keyword:
+        semantic = False
+        mode_str = "keyword (forced)"
+    else:
+        semantic = None  # Auto-detect
+        auto_result = should_use_semantic(query)
+        mode_str = f"{'semantic' if auto_result else 'keyword'} (auto)"
+    
+    print(f"🦞 Claw Recall: '{query}'")
+    print(f"   Mode: {mode_str}")
+    if args.agent:
+        print(f"   Agent: {args.agent}")
+    if args.files_only:
+        print(f"   Scope: files only")
+    elif args.convos_only:
+        print(f"   Scope: conversations only")
+    else:
+        print(f"   Scope: conversations + files")
+    
+    results = unified_search(
+        query=query,
+        agent=args.agent,
+        semantic=semantic,
+        files_only=args.files_only,
+        convos_only=args.convos_only,
+        limit=args.limit
+    )
+    
+    if args.json:
+        import json
+        print(json.dumps(results, indent=2, default=str))
+    else:
+        print(format_unified_results(results, args.verbose))
+
+
+if __name__ == "__main__":
+    main()
