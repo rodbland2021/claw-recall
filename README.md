@@ -216,6 +216,38 @@ ln -s ~/shared/convo-memory ~/clawd-cyrus/shared/convo-memory
 
 Now all agents search the same database.
 
+### Cross-Agent Search Example
+
+You can ask one agent to find conversations you had with a different agent:
+
+**You to Kit:** "What did I discuss with Cyrus about the YouTube workflow last week?"
+
+**Kit searches:** `./recall.py "YouTube workflow" --semantic`
+
+**Kit responds:**
+> I searched our conversation history and found relevant discussions with **Cyrus** (not me):
+>
+> On **February 3rd**, you and Cyrus discussed the YouTube Shorts workflow. Cyrus set up a 10-step pipeline: retention analysis → extract → crop → transcribe → captions → upload.
+>
+> On **February 5th**, Cyrus uploaded 4 clips from the Darius Wright interview to the UC Clips channel.
+>
+> Want me to search for more details, or should I ask Cyrus directly?
+
+The search results show which agent the conversation was with:
+
+```
+#1 | cyrus | discord | 2026-02-03T08:30
+   [assistant] Here's the YouTube Shorts workflow I set up...
+
+#2 | cyrus | discord | 2026-02-05T14:22  
+   [assistant] Uploaded 4 clips from Darius Wright interview...
+
+#3 | main | direct | 2026-02-02T10:30
+   [user] Can you check what Cyrus has been working on?
+```
+
+The `cyrus` and `main` labels tell you which agent was involved in each conversation.
+
 ---
 
 ## Roadmap / Future Enhancements
