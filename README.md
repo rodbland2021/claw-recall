@@ -32,9 +32,21 @@ Just talk to your bot naturally:
 - "Remind me what we talked about with the API integration"
 - "Search our history for anything about project X"
 
-Your bot will search through ALL your archived conversations and summarize what it finds.
+Your bot will search through ALL your archived conversations and summarize what it finds — **including the dates** of those conversations.
 
-### Setting Up Your Bot to Use Recall
+### ⚠️ Important: Teach Your Bot About Recall
+
+**Your bot won't automatically know about Claw Recall.** You must tell it!
+
+**Option A: Automatic Setup (Recommended)**
+
+Run the install script to automatically add Recall to your TOOLS.md:
+
+```bash
+./install.sh ~/clawd/TOOLS.md
+```
+
+**Option B: Manual Setup**
 
 Add this to your agent's `TOOLS.md` or `AGENTS.md`:
 
