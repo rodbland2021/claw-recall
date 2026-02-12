@@ -158,12 +158,48 @@ ln -s ~/shared/convo-memory ~/clawd/shared/convo-memory
 
 ### 5. Keep It Updated
 
-Set up automatic indexing so new conversations are searchable:
+Set up automatic indexing so new conversations are searchable.
+
+**Option A: OpenClaw Cron (Recommended)**
+
+Add a cron job in your OpenClaw config to run the indexer regularly:
+
+```json
+{
+  "name": "convo-memory-index",
+  "schedule": { "kind": "every", "everyMs": 900000 },
+  "sessionTarget": "main",
+  "wakeMode": "next-heartbeat",
+  "payload": {
+    "kind": "systemEvent",
+    "text": "Run quick index on convo-memory database: bash ~/shared/convo-memory/hooks/quick-index.sh"
+  }
+}
+```
+
+This runs every 15 minutes and indexes both archived and active sessions.
+
+**Option B: System Crontab**
 
 ```bash
 # Add to crontab (crontab -e)
-0 * * * * cd ~/tools/recall && python index.py --source ~/.openclaw/agents-archive/
+*/15 * * * * cd ~/shared/convo-memory && python3 index.py --source ~/.openclaw/agents-archive/ --include-active 2>/dev/null
 ```
+
+### Index Options
+
+```bash
+# Index only archived sessions (default)
+python3 index.py --source ~/.openclaw/agents-archive/
+
+# Also index active/live sessions (recommended)
+python3 index.py --source ~/.openclaw/agents-archive/ --include-active
+
+# Generate embeddings for semantic search
+python3 index.py --source ~/.openclaw/agents-archive/ --include-active --embeddings
+```
+
+The `--include-active` flag indexes current, in-progress sessions from `~/.openclaw/agents/*/sessions/` so your agent can search conversations that haven't been archived yet.
 
 ---
 
@@ -250,10 +286,48 @@ The `cyrus` and `main` labels tell you which agent was involved in each conversa
 
 ---
 
+## Configuration
+
+### OpenClaw TOOLS.md / AGENTS.md
+
+For best results, add memory search rules to your agent's AGENTS.md or MEMORY.md:
+
+```markdown
+## Memory Search Rules
+
+**When the user asks about ANYTHING you're not 100% sure about, ALWAYS search before answering:**
+1. First: `memory_search` (searches MEMORY.md + memory/*.md)
+2. If not found: Claw Recall (`cd ~/shared/convo-memory && ./claw-recall "query"`)
+3. If still not found: tell the user you checked both and couldn't find it
+
+**Never say "I don't have context on that" without searching first.**
+```
+
+This ensures your agent proactively searches conversation history instead of just saying "I don't know."
+
+### Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `OPENAI_API_KEY` | No | Enables semantic search via embeddings |
+| `CLAW_RECALL_DB` | No | Custom path to SQLite database (default: `./convo_memory.db`) |
+
+### Search Modes
+
+Claw Recall auto-detects the best search mode based on your query:
+
+| Query Type | Mode | Example |
+|-----------|------|---------|
+| Short terms, IDs | Keyword | `"LYFER"`, `"act_12345"` |
+| Natural language questions | Semantic | `"what did we discuss about playbooks"` |
+| Mixed | Hybrid | `"Facebook ads campaign setup"` |
+
+You can force a mode with `--keyword` or `--semantic` flags.
+
 ## Roadmap / Future Enhancements
 
+- [x] **Active session indexing** — Index live sessions, not just archives
 - [ ] **Deep linking to original messages** — Click search results to jump back to the original Telegram/Discord message (platform-dependent, WhatsApp/Signal don't support this)
-- [ ] **Real-time indexing** — Index conversations as they happen, not just from archives
 - [ ] **Embeddings caching** — Skip re-embedding unchanged messages
 - [ ] **Multi-user support** — Separate databases per user/workspace
 

@@ -142,7 +142,6 @@ def unified_search(
                         "channel": r.channel,
                         "role": r.role,
                         "content": r.content[:500],
-                        "fullContent": r.content,  # For deep link extraction
                         "timestamp": r.timestamp.isoformat() if r.timestamp else None,
                         "score": round(r.score, 3)
                     })
