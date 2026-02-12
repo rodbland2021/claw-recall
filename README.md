@@ -68,6 +68,29 @@ cd ~/tools/recall && ./recall.py "conceptual question" --semantic
 
 That's it! Your bot will now use Claw Recall when you ask about past conversations.
 
+**Option C: Add to MEMORY.md (Strongest)**
+
+The most reliable way to ensure your bot uses Recall is to add search rules directly to your `MEMORY.md` (or equivalent long-term memory file). This gets loaded every session:
+
+```markdown
+## Memory Search Rules
+
+**When I'm asked about ANYTHING I'm not 100% sure about, ALWAYS search before answering:**
+1. First: `memory_search` (searches MEMORY.md + memory/*.md)
+2. If not found: Claw Recall (`cd ~/shared/convo-memory && ./claw-recall "query"`) — searches ALL conversation history
+3. If still not found: tell the user I checked both and couldn't find it, ask for clarification
+
+**Triggers to search (not exhaustive):**
+- "Remember when we..." / "What did we decide about..." / "Didn't we already..."
+- Any reference to a past conversation, decision, or project I don't have loaded
+- Names, IDs, or terms I don't immediately recognize
+- When the user seems surprised I don't know something
+
+**Never say "I don't have context on that" without searching first.**
+```
+
+This is important because agents can be "lazy" about searching — they'll sometimes say "I don't have that context" when the answer is sitting right there in the conversation history. Adding it to MEMORY.md makes the search behaviour a core part of the agent's identity, not just a tool it might forget to use.
+
 ---
 
 ## Web Interface
