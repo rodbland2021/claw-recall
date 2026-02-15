@@ -402,7 +402,7 @@ You can force a mode with `--keyword` or `--semantic` flags.
 - [x] **Cross-installation search** — Sync archives between machines via rsync for full cross-agent search
 - [x] **Cron-based indexing with embeddings** — Automated 15-min incremental indexing with semantic embeddings
 - [ ] **Deep linking to original messages** — Click search results to jump back to the original Telegram/Discord message (platform-dependent, WhatsApp/Signal don't support this)
-- [ ] **Embeddings caching** — Skip re-embedding unchanged messages
+- [x] **Embeddings caching** — Backfill mode skips messages that already have embeddings
 - [ ] **Multi-user support** — Separate databases per user/workspace
 
 PRs welcome! 🦞

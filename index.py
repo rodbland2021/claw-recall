@@ -353,6 +353,62 @@ def index_directory(
     return results
 
 
+def backfill_embeddings(conn: sqlite3.Connection, openai_client: 'OpenAI') -> dict:
+    """Generate embeddings for messages that don't have them yet."""
+    
+    # Find messages without embeddings (that are long enough to be worth embedding)
+    cursor = conn.execute("""
+        SELECT m.id, m.content
+        FROM messages m
+        LEFT JOIN embeddings e ON e.message_id = m.id
+        WHERE e.id IS NULL AND LENGTH(m.content) >= ?
+        ORDER BY m.id
+    """, (MIN_CONTENT_LENGTH,))
+    
+    candidates = cursor.fetchall()
+    
+    if not candidates:
+        print("✅ All eligible messages already have embeddings")
+        return {'backfilled': 0, 'skipped': 0}
+    
+    print(f"🔄 Backfilling embeddings for {len(candidates)} messages...")
+    
+    backfilled = 0
+    for i in range(0, len(candidates), EMBEDDING_BATCH_SIZE):
+        batch = candidates[i:i + EMBEDDING_BATCH_SIZE]
+        texts = [content[:8000] for _, content in batch]
+        
+        try:
+            response = openai_client.embeddings.create(
+                model=EMBEDDING_MODEL,
+                input=texts
+            )
+            for (mid, _), item in zip(batch, response.data):
+                embedding = np.array(item.embedding, dtype=np.float32)
+                conn.execute("""
+                    INSERT INTO embeddings (message_id, embedding, model)
+                    VALUES (?, ?, ?)
+                """, (mid, embedding.tobytes(), EMBEDDING_MODEL))
+                backfilled += 1
+        except Exception as e:
+            print(f"⚠️  Embedding batch error: {e}")
+        
+        if (i + EMBEDDING_BATCH_SIZE) % 500 == 0:
+            conn.commit()
+            print(f"   Progress: {min(i + EMBEDDING_BATCH_SIZE, len(candidates))}/{len(candidates)}")
+    
+    conn.commit()
+    
+    # Count how many still lack embeddings (too short)
+    skipped = conn.execute("""
+        SELECT COUNT(*) FROM messages m
+        LEFT JOIN embeddings e ON e.message_id = m.id
+        WHERE e.id IS NULL
+    """).fetchone()[0]
+    
+    return {'backfilled': backfilled, 'skipped': skipped}
+
+
 def main():
     parser = argparse.ArgumentParser(description='Index OpenClaw session files')
     parser.add_argument('--source', type=Path, default=DEFAULT_ARCHIVE_PATH,
@@ -400,6 +456,16 @@ def main():
                     results['errors'] += r['errors']
                     results['total_messages'] += r['total_messages']
                     results['total_embeddings'] += r['total_embeddings']
+    
+    # Backfill embeddings for any previously-indexed messages that lack them
+    if args.embeddings and openai_client:
+        print(f"\n🔄 Checking for messages missing embeddings...")
+        backfill = backfill_embeddings(conn, openai_client)
+        results['total_embeddings'] += backfill['backfilled']
+        if backfill['backfilled'] > 0:
+            print(f"   Backfilled: {backfill['backfilled']} embeddings")
+        if backfill['skipped'] > 0:
+            print(f"   Skipped: {backfill['skipped']} (too short, <{MIN_CONTENT_LENGTH} chars)")
     
     conn.close()
     
