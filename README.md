@@ -206,7 +206,12 @@ This runs every 15 minutes and indexes both archived and active sessions.
 
 ```bash
 # Add to crontab (crontab -e)
-*/15 * * * * cd ~/shared/convo-memory && python3 index.py --source ~/.openclaw/agents-archive/ --include-active 2>/dev/null
+
+# Index every 15 min (with embeddings for semantic search)
+*/15 * * * * /bin/bash ~/repos/claw-recall/hooks/quick-index.sh >> /tmp/recall-index.log 2>&1
+
+# Optional: Sync archives from remote installations hourly (see Cross-Installation Search)
+0 * * * * /bin/bash ~/repos/claw-recall/hooks/sync-archives.sh
 ```
 
 ### Index Options
@@ -261,7 +266,7 @@ In a typical setup:
 
 ## Multi-Agent Setup
 
-If you have multiple agents, point them all to a shared database:
+If you have multiple agents on the **same machine**, point them all to a shared database:
 
 ```bash
 # Shared location
@@ -274,6 +279,50 @@ ln -s ~/shared/convo-memory ~/clawd-cyrus/shared/convo-memory
 ```
 
 Now all agents search the same database.
+
+### Cross-Installation Search (Multiple Machines)
+
+If you run OpenClaw on multiple machines (e.g. a local PC and a VPS), you can sync archived sessions between them using `rsync` so each installation can search the other's conversations.
+
+**1. Set up the sync script:**
+
+The included `hooks/sync-archives.sh` does bidirectional rsync:
+
+```bash
+# VPS → Local (pulls remote agent's archives)
+rsync -az vps:~/.openclaw/agents-archive/ ~/.openclaw/agents-archive-vps/
+
+# Local → VPS (pushes your archives to remote)
+rsync -az ~/.openclaw/agents-archive/ vps:~/.openclaw/agents-archive-claude/
+```
+
+Customize the SSH alias (`vps`) and paths for your setup. The script logs to `/tmp/recall-sync.log`.
+
+**2. Add cron jobs:**
+
+```bash
+# Sync archives hourly
+0 * * * * /bin/bash ~/repos/claw-recall/hooks/sync-archives.sh
+
+# Index everything every 15 min (local + synced remote archives)
+*/15 * * * * /bin/bash ~/repos/claw-recall/hooks/quick-index.sh >> /tmp/recall-index.log 2>&1
+```
+
+**3. Update quick-index.sh on each machine:**
+
+The indexer automatically picks up synced archives if the directory exists:
+
+```bash
+# Index local archives + active sessions
+python3 index.py --source ~/.openclaw/agents-archive/ --include-active --incremental --embeddings
+
+# Index remote archives (synced by sync-archives.sh)
+if [ -d ~/.openclaw/agents-archive-vps ]; then
+    python3 index.py --source ~/.openclaw/agents-archive-vps/ --incremental --embeddings
+fi
+```
+
+Now both machines have full cross-agent, cross-installation search. Ask your local agent about conversations you had with your VPS agent — and vice versa.
 
 ### Cross-Agent Search Example
 
@@ -350,6 +399,8 @@ You can force a mode with `--keyword` or `--semantic` flags.
 ## Roadmap / Future Enhancements
 
 - [x] **Active session indexing** — Index live sessions, not just archives
+- [x] **Cross-installation search** — Sync archives between machines via rsync for full cross-agent search
+- [x] **Cron-based indexing with embeddings** — Automated 15-min incremental indexing with semantic embeddings
 - [ ] **Deep linking to original messages** — Click search results to jump back to the original Telegram/Discord message (platform-dependent, WhatsApp/Signal don't support this)
 - [ ] **Embeddings caching** — Skip re-embedding unchanged messages
 - [ ] **Multi-user support** — Separate databases per user/workspace
