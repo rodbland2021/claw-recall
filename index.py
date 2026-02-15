@@ -285,7 +285,7 @@ def index_session_file(
         ]
         
         if embed_candidates:
-            texts = [c[1][:6000] for c in embed_candidates]  # ~1500 tokens, safe for 8192 limit
+            texts = [c[1][:2000] for c in embed_candidates]  # ~1500 tokens, safe for 8192 limit
             embeddings = generate_embeddings(texts, openai_client)
             
             for (mid, _), embedding in zip(embed_candidates, embeddings):
@@ -376,7 +376,7 @@ def backfill_embeddings(conn: sqlite3.Connection, openai_client: 'OpenAI') -> di
     backfilled = 0
     for i in range(0, len(candidates), EMBEDDING_BATCH_SIZE):
         batch = candidates[i:i + EMBEDDING_BATCH_SIZE]
-        texts = [content[:6000] for _, content in batch]  # ~1500 tokens, safe for 8192 limit
+        texts = [content[:2000] for _, content in batch]  # ~1500 tokens, safe for 8192 limit
         
         try:
             response = openai_client.embeddings.create(
