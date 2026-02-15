@@ -1,6 +1,6 @@
 # 🔍 Claw Recall
 
-**Searchable conversation memory for OpenClaw agents.**
+**Searchable conversation memory for OpenClaw and Claude Code agents.**
 
 Ever had your agent forget something important? Context compaction means your agent loses access to older conversations. Claw Recall fixes that — giving your agent the ability to search through ALL your past conversations, not just what's in the current context window.
 
@@ -154,6 +154,16 @@ cp .env.example .env
 
 Semantic search uses OpenAI embeddings (~$0.02 for 30K messages). Without it, you still get fast keyword search.
 
+### The `recall` Wrapper Script
+
+The repo includes a `recall` wrapper script (used by the `claw-recall` symlink) that automatically sources `OPENAI_API_KEY` from your `~/.bashrc` so you do not need to export it manually before each search. Just run:
+
+```bash
+./claw-recall "search query"
+```
+
+and it handles the environment setup for you.
+
 ### 3. Create Database & Index
 
 ```bash
@@ -262,6 +272,19 @@ In a typical setup:
 3. **Semantic Search:** OpenAI embeddings find conceptually related content (~2s)
 4. **File Search:** Also scans markdown/text files across your workspaces
 
+### Supported Session Formats
+
+Claw Recall indexes conversations from two different sources automatically:
+
+- **OpenClaw sessions** — Standard OpenClaw agent sessions (archived and active). Messages use `role` fields at the top level of each JSON line.
+- **Claude Code sessions** — Claude Code (CLI) session files stored under `~/.claude/projects/`. These use a different format with `type=user/assistant` and nested message objects. The indexer detects this format automatically and extracts the text content, stripping system XML tags during indexing so only the actual conversation content is searchable.
+
+No configuration is needed to switch between formats. Point the indexer at any directory containing either format and it handles the rest.
+
+### Live Session Re-indexing
+
+The indexer detects when active session files have grown since they were last indexed and automatically re-indexes them. This means conversations-in-progress get updated in the database on each index run, not just when they are archived. If you run the indexer on a cron schedule, your agent can search the current conversation (or any other active session) within minutes of new messages being added.
+
 ---
 
 ## Multi-Agent Setup
@@ -323,6 +346,24 @@ fi
 ```
 
 Now both machines have full cross-agent, cross-installation search. Ask your local agent about conversations you had with your VPS agent — and vice versa.
+
+### Indexing Claude Code Sessions
+
+If you use Claude Code (Anthropic's CLI), you can index those sessions too. Claude Code stores conversations under `~/.claude/projects/`. Add these to your cron or `quick-index.sh`:
+
+```bash
+# Index local Claude Code sessions
+if [ -d ~/.claude/projects ]; then
+    python3 index.py --source ~/.claude/projects/ --incremental --embeddings 2>/dev/null
+fi
+
+# Index laptop CC sessions (if synced to this machine)
+if [ -d ~/.claude/projects-laptop ]; then
+    python3 index.py --source ~/.claude/projects-laptop/ --incremental --embeddings 2>/dev/null
+fi
+```
+
+The indexer automatically detects the Claude Code session format and handles it alongside OpenClaw sessions. No flags or special configuration required.
 
 ### Cross-Agent Search Example
 
@@ -401,8 +442,11 @@ You can force a mode with `--keyword` or `--semantic` flags.
 - [x] **Active session indexing** — Index live sessions, not just archives
 - [x] **Cross-installation search** — Sync archives between machines via rsync for full cross-agent search
 - [x] **Cron-based indexing with embeddings** — Automated 15-min incremental indexing with semantic embeddings
-- [ ] **Deep linking to original messages** — Click search results to jump back to the original Telegram/Discord message (platform-dependent, WhatsApp/Signal don't support this)
 - [x] **Embeddings caching** — Backfill mode skips messages that already have embeddings
+- [x] **Claude Code session format support** — Index Claude Code (CLI) sessions alongside OpenClaw sessions, with automatic format detection and system tag stripping
+- [x] **Live session re-indexing** — Detect when active session files have grown since last indexing and automatically re-index them
+- [ ] **Automatic summary generation for indexed sessions** — Generate concise summaries of indexed sessions for quick browsing
+- [ ] **Deep linking to original messages** — Click search results to jump back to the original Telegram/Discord message (platform-dependent, WhatsApp/Signal don't support this)
 - [ ] **Multi-user support** — Separate databases per user/workspace
 
 PRs welcome! 🦞
