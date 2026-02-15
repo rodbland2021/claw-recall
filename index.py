@@ -27,7 +27,7 @@ DEFAULT_SESSIONS_PATH = Path.home() / ".openclaw" / "agents"
 
 # Embedding settings
 EMBEDDING_MODEL = "text-embedding-3-small"
-EMBEDDING_BATCH_SIZE = 100
+EMBEDDING_BATCH_SIZE = 20  # Keep small to stay within 8192 token limit per API call
 MIN_CONTENT_LENGTH = 20  # Skip very short messages for embeddings
 
 
