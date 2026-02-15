@@ -160,6 +160,58 @@ def extract_messages(filepath: Path) -> list[dict]:
                     first_timestamp = timestamp
                 last_timestamp = timestamp
         
+        # Claude Code session format: {"type": "user"/"assistant", "message": {"role": ..., "content": ...}}
+        elif entry_type in ('user', 'assistant') and 'message' in entry:
+            msg = entry.get('message', {})
+            role = msg.get('role', entry_type)
+            raw_content = msg.get('content', '')
+            timestamp = None
+
+            # CC entries may have timestamp at top level
+            if 'timestamp' in entry:
+                try:
+                    ts_str = entry['timestamp']
+                    if isinstance(ts_str, str):
+                        timestamp = datetime.fromisoformat(ts_str.replace('Z', '+00:00'))
+                    elif isinstance(ts_str, (int, float)):
+                        timestamp = datetime.fromtimestamp(ts_str / 1000)
+                except:
+                    pass
+
+            content = None
+            if isinstance(raw_content, str):
+                content = raw_content
+            elif isinstance(raw_content, list):
+                text_parts = []
+                for p in raw_content:
+                    if isinstance(p, dict) and p.get('type') == 'text':
+                        text_parts.append(p.get('text', ''))
+                content = ' '.join(text_parts)
+
+            if role in ('toolResult', 'tool_result', 'tool-result'):
+                continue
+            if not content or not content.strip():
+                continue
+
+            content = content.strip()
+
+            # Strip XML system tags that CC wraps around messages
+            content = re.sub(r'<(?:system-reminder|local-command-\w+|command-\w+)[^>]*>.*?</(?:system-reminder|local-command-\w+|command-\w+)>', '', content, flags=re.DOTALL).strip()
+            if not content:
+                continue
+
+            messages.append({
+                'role': role,
+                'content': content,
+                'timestamp': timestamp,
+                'message_index': len(messages)
+            })
+
+            if timestamp:
+                if first_timestamp is None:
+                    first_timestamp = timestamp
+                last_timestamp = timestamp
+
         # Also handle legacy format: {"role": "user", "content": "..."}
         elif 'role' in entry and 'content' in entry and entry_type is None:
             role = entry.get('role')
@@ -223,13 +275,22 @@ def index_session_file(
 ) -> dict:
     """Index a single session file into the database."""
     
-    # Check if already indexed
+    # Check if already indexed — re-index if file has changed (active sessions grow)
     cursor = conn.execute(
-        "SELECT id FROM index_log WHERE source_file = ?",
+        "SELECT id, file_size FROM index_log WHERE source_file = ?",
         (str(filepath),)
     )
-    if cursor.fetchone():
-        return {'status': 'skipped', 'reason': 'already indexed'}
+    existing = cursor.fetchone()
+    if existing:
+        current_size = filepath.stat().st_size
+        if existing[1] == current_size:
+            return {'status': 'skipped', 'reason': 'already indexed'}
+        # File has grown — delete old data and re-index
+        session_id = filepath.stem
+        conn.execute("DELETE FROM embeddings WHERE message_id IN (SELECT id FROM messages WHERE session_id = ?)", (session_id,))
+        conn.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
+        conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+        conn.execute("DELETE FROM index_log WHERE id = ?", (existing[0],))
     
     # Extract metadata
     metadata = extract_session_metadata(filepath)

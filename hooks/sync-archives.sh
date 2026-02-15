@@ -26,4 +26,25 @@ else
     log "Local → VPS: FAILED (exit=$RC2)"
 fi
 
-log "Sync done (exit codes: VPS→Local=$RC1, Local→VPS=$RC2)"
+# CC sessions → VPS (Claude Code desktop + laptop sessions for Kit's recall)
+ssh vps "mkdir -p ~/.openclaw/agents-archive-cc" 2>/dev/null
+rsync -az --timeout=60 ~/.claude/projects/ vps:~/.openclaw/agents-archive-cc/ >> "$LOGFILE" 2>&1
+RC3=$?
+if [ $RC3 -eq 0 ]; then
+    log "CC Desktop → VPS: OK"
+else
+    log "CC Desktop → VPS: FAILED (exit=$RC3)"
+fi
+
+# Also send laptop sessions to VPS
+if [ -d ~/.claude/projects-laptop ]; then
+    rsync -az --timeout=60 ~/.claude/projects-laptop/ vps:~/.openclaw/agents-archive-cc/ >> "$LOGFILE" 2>&1
+    RC4=$?
+    if [ $RC4 -eq 0 ]; then
+        log "CC Laptop → VPS: OK"
+    else
+        log "CC Laptop → VPS: FAILED (exit=$RC4)"
+    fi
+fi
+
+log "Sync done (VPS→Local=$RC1, Local→VPS=$RC2, CC→VPS=$RC3)"

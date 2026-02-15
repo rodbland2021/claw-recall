@@ -15,3 +15,13 @@ python3 index.py --source ~/.openclaw/agents-archive/ --include-active --increme
 if [ -d ~/.openclaw/agents-archive-vps ]; then
     python3 index.py --source ~/.openclaw/agents-archive-vps/ --incremental --embeddings 2>/dev/null
 fi
+
+# Index laptop Claude Code sessions (synced by laptop cron)
+if [ -d ~/.claude/projects-laptop ]; then
+    python3 index.py --source ~/.claude/projects-laptop/ --incremental --embeddings 2>/dev/null
+fi
+
+# Index local Claude Code sessions too
+if [ -d ~/.claude/projects ]; then
+    python3 index.py --source ~/.claude/projects/ --incremental --embeddings 2>/dev/null
+fi

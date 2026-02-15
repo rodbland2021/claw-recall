@@ -1,0 +1,4 @@
+#!/bin/bash
+# Quick wrapper — sources API key and runs claw-recall
+export OPENAI_API_KEY="$(grep OPENAI_API_KEY ~/.bashrc | cut -d'"' -f2)"
+cd "$(dirname "$0")" && python3 claw-recall "$@"
