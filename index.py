@@ -6,6 +6,7 @@ Parses OpenClaw session .jsonl files and indexes them into the database.
 
 import argparse
 import json
+import uuid
 import sqlite3
 import os
 import re
@@ -82,7 +83,28 @@ def extract_session_metadata(filepath: Path) -> dict:
                 metadata['channel'] = parts[1]
             else:
                 metadata['channel'] = 'direct'
-    
+
+    # Check for Claude Code sessions (UUID filenames)
+    # and whether they're from Telegram or terminal
+    session_id = filepath.stem
+    try:
+        uuid.UUID(session_id)
+        # It's a UUID — this is a Claude Code session
+        metadata['agent_id'] = 'claude-code'
+        metadata['channel'] = 'terminal'
+
+        # Check if tagged as telegram session
+        marker = filepath.parent / 'telegram-sessions.json'
+        if marker.exists():
+            try:
+                tg_sessions = json.loads(marker.read_text())
+                if session_id in tg_sessions:
+                    metadata['channel'] = 'telegram'
+            except:
+                pass
+    except ValueError:
+        pass  # Not a UUID filename, keep existing metadata
+
     return metadata
 
 
