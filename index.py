@@ -84,24 +84,39 @@ def extract_session_metadata(filepath: Path) -> dict:
             else:
                 metadata['channel'] = 'direct'
 
-    # Check for Claude Code sessions (UUID filenames)
-    # and whether they're from Telegram or terminal
+    # Check for UUID filenames (OpenClaw sub-agent sessions or Claude Code sessions)
     session_id = filepath.stem
     try:
         uuid.UUID(session_id)
-        # It's a UUID — this is a Claude Code session
-        metadata['agent_id'] = 'claude-code'
-        metadata['channel'] = 'terminal'
+        # It's a UUID filename. Two cases:
+        # 1. OpenClaw active session in agents/{agent_name}/sessions/{uuid}.jsonl
+        # 2. Claude Code session in .claude/projects/{project}/{uuid}.jsonl
+        
+        # Check if inside agents/{name}/sessions/ or agents-archive/{name}/ directory
+        path_str = str(filepath)
+        import re as _re
+        agents_match = _re.search(r'/agents/([^/]+)/sessions/', path_str)
+        archive_match = _re.search(r'/agents-archive/([^/]+)/', path_str)
+        if agents_match:
+            metadata['agent_id'] = agents_match.group(1)
+            metadata['channel'] = 'direct'
+        elif archive_match:
+            metadata['agent_id'] = archive_match.group(1)
+            metadata['channel'] = 'direct'
+        else:
+            # Not in agents/ dir — assume Claude Code session
+            metadata['agent_id'] = 'claude-code'
+            metadata['channel'] = 'terminal'
 
-        # Check if tagged as telegram session
-        marker = filepath.parent / 'telegram-sessions.json'
-        if marker.exists():
-            try:
-                tg_sessions = json.loads(marker.read_text())
-                if session_id in tg_sessions:
-                    metadata['channel'] = 'telegram'
-            except:
-                pass
+            # Check if tagged as telegram session
+            marker = filepath.parent / 'telegram-sessions.json'
+            if marker.exists():
+                try:
+                    tg_sessions = json.loads(marker.read_text())
+                    if session_id in tg_sessions:
+                        metadata['channel'] = 'telegram'
+                except:
+                    pass
     except ValueError:
         pass  # Not a UUID filename, keep existing metadata
 
