@@ -68,13 +68,18 @@ def extract_session_metadata(filepath: Path) -> dict:
     parts = filename.replace('.jsonl', '').split('-')
     
     if parts[0] == 'agent':
-        # Format: agent-{agent_id}-{channel}-...
-        if len(parts) >= 2:
-            metadata['agent_id'] = parts[1]
-        if len(parts) >= 3:
-            metadata['channel'] = parts[2]
-        if len(parts) >= 4 and parts[2] in ('discord', 'slack', 'telegram'):
-            metadata['channel_id'] = parts[4] if len(parts) > 4 else parts[3]
+        # Could be OpenClaw format: agent-{agent_id}-{channel}-...
+        # Or Claude Code sub-agent: agent-{hex_id}.jsonl in .claude/projects/
+        if '.claude/projects' in str(filepath):
+            metadata['agent_id'] = 'claude-code'
+            metadata['channel'] = 'terminal'
+        else:
+            if len(parts) >= 2:
+                metadata['agent_id'] = parts[1]
+            if len(parts) >= 3:
+                metadata['channel'] = parts[2]
+            if len(parts) >= 4 and parts[2] in ('discord', 'slack', 'telegram'):
+                metadata['channel_id'] = parts[4] if len(parts) > 4 else parts[3]
     else:
         # Format: {agent_id}-{uuid}-timestamp.jsonl or {agent_id}-{channel}-timestamp.jsonl
         metadata['agent_id'] = parts[0]
@@ -96,7 +101,7 @@ def extract_session_metadata(filepath: Path) -> dict:
         path_str = str(filepath)
         import re as _re
         agents_match = _re.search(r'/agents/([^/]+)/sessions/', path_str)
-        archive_match = _re.search(r'/agents-archive/([^/]+)/', path_str)
+        archive_match = _re.search(r'/agents-archive[^/]*/([^/]+)/', path_str)
         if agents_match:
             metadata['agent_id'] = agents_match.group(1)
             metadata['channel'] = 'direct'
