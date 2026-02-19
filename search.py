@@ -42,7 +42,7 @@ def keyword_search(
     query: str,
     agent: Optional[str] = None,
     channel: Optional[str] = None,
-    days: Optional[int] = None,
+    days: Optional[float] = None,
     limit: int = 20
 ) -> List[SearchResult]:
     """Search using FTS5 full-text search."""
@@ -256,7 +256,7 @@ def search_conversations(
     query: str,
     agent: Optional[str] = None,
     channel: Optional[str] = None,
-    days: Optional[int] = None,
+    days: Optional[float] = None,
     semantic: bool = False,
     limit: int = 10,
     db_path: Path = DB_PATH

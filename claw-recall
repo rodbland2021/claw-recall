@@ -18,7 +18,6 @@ Usage:
 """
 
 import re
-
 import argparse
 import sys
 from pathlib import Path
@@ -29,6 +28,23 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from search import search_conversations, SearchResult, OPENAI_AVAILABLE
 from search_files import search_files, FileMatch
+
+
+def parse_since(value: str) -> float:
+    """Parse a --since value like '60m', '2h', '3d' into fractional days."""
+    m = re.match(r'^(\d+(?:\.\d+)?)\s*(m|min|mins|minutes?|h|hrs?|hours?|d|days?)$', value.strip().lower())
+    if not m:
+        raise argparse.ArgumentTypeError(
+            f"Invalid --since format: '{value}'. Use e.g. '60m', '2h', '3d'"
+        )
+    num = float(m.group(1))
+    unit = m.group(2)[0]  # first char: m, h, or d
+    if unit == 'm':
+        return num / 1440  # minutes to days
+    elif unit == 'h':
+        return num / 24  # hours to days
+    else:
+        return num
 
 
 def should_use_semantic(query: str) -> bool:
@@ -101,7 +117,8 @@ def unified_search(
     semantic: bool = None,  # None = auto-detect
     files_only: bool = False,
     convos_only: bool = False,
-    limit: int = 10
+    limit: int = 10,
+    days: float = None
 ) -> dict:
     """
     Search both conversations and files in parallel.
@@ -128,7 +145,8 @@ def unified_search(
                 query=query,
                 agent=agent,
                 semantic=use_semantic,
-                limit=limit
+                limit=limit,
+                days=days
             )
             # Deduplicate
             seen = set()
@@ -247,6 +265,8 @@ Examples:
     ./recall.py "act_12345" --keyword                    # Force keyword
     ./recall.py "B-roll workflow" --agent cyrus
     ./recall.py "Facebook ads" --files-only
+    ./recall.py "grok" --since 60m                       # Last 60 minutes
+    ./recall.py "Kit" --since 2h --agent main            # Last 2 hours, specific agent
         """
     )
     parser.add_argument('query', nargs='+', help='Search query')
@@ -259,6 +279,7 @@ Examples:
     
     parser.add_argument('--files-only', '-f', action='store_true', help='Only search files')
     parser.add_argument('--convos-only', '-c', action='store_true', help='Only search conversations')
+    parser.add_argument('--since', type=parse_since, help='Only search recent messages (e.g. 60m, 2h, 3d)')
     parser.add_argument('--limit', '-n', type=int, default=10, help='Max results per category')
     parser.add_argument('--verbose', '-v', action='store_true', help='Show more context')
     parser.add_argument('--json', '-j', action='store_true', help='Output as JSON')
@@ -282,19 +303,29 @@ Examples:
     print(f"   Mode: {mode_str}")
     if args.agent:
         print(f"   Agent: {args.agent}")
+    if args.since:
+        # Convert fractional days back to human-readable for display
+        mins = args.since * 1440
+        if mins < 60:
+            print(f"   Since: last {int(mins)} minutes")
+        elif mins < 1440:
+            print(f"   Since: last {mins/60:.1f} hours")
+        else:
+            print(f"   Since: last {args.since:.1f} days")
     if args.files_only:
         print(f"   Scope: files only")
     elif args.convos_only:
         print(f"   Scope: conversations only")
     else:
         print(f"   Scope: conversations + files")
-    
+
     results = unified_search(
         query=query,
         agent=args.agent,
         semantic=semantic,
         files_only=args.files_only,
         convos_only=args.convos_only,
+        days=args.since,
         limit=args.limit
     )
     
