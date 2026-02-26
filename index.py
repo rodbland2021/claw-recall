@@ -48,72 +48,110 @@ def parse_session_file(filepath: Path) -> Generator[dict, None, None]:
                 continue
 
 
+# Canonical agent name mapping — normalizes internal IDs to display names
+AGENT_NAME_MAP = {
+    'main': 'Kit',
+    'kit': 'Kit',
+    'claude': 'Claude',
+    'claude-code': 'CC',
+    'cc': 'CC',
+    'cyrus': 'cyrus',
+    'damian': 'damian',
+    'hale': 'hale',
+    'arthur': 'arthur',
+    'roman': 'roman',
+    'sterling': 'sterling',
+    'conrad': 'conrad',
+    'elara': 'elara',
+    'grok': 'grok',
+    'chat': 'chat',
+}
+
+# Known OpenClaw agent slot names (used to validate filename-parsed agent IDs)
+KNOWN_AGENTS = set(AGENT_NAME_MAP.keys())
+
+
+def _normalize_agent_id(raw_id: str) -> str:
+    """Normalize a raw agent ID to its canonical display name."""
+    return AGENT_NAME_MAP.get(raw_id.lower(), raw_id)
+
+
+def _is_hex_id(s: str) -> bool:
+    """Check if a string looks like a hex session ID fragment (not an agent name)."""
+    if len(s) < 6:
+        return False
+    try:
+        int(s, 16)
+        return s.lower() not in KNOWN_AGENTS
+    except ValueError:
+        return False
+
+
 def extract_session_metadata(filepath: Path) -> dict:
-    """Extract session metadata from filename and content."""
+    """Extract session metadata from filename and directory path.
+
+    Resolution order (most reliable first):
+    1. Directory path — agents/{name}/sessions/ or agents-archive-{name}/
+    2. Filename prefix — agent-{name}-{channel}-... format
+    3. UUID detection — Claude Code sessions in .claude/projects/
+    4. Fallback — first filename part if it's a known agent name
+    """
     filename = filepath.name
-    
-    # Parse filename patterns like:
-    # agent-main-cron-uuid-timestamp.jsonl
-    # main-uuid-timestamp.jsonl
-    # cyrus-discord-timestamp.jsonl
-    
+    path_str = str(filepath)
+
     metadata = {
-        'source_file': str(filepath),
+        'source_file': path_str,
         'agent_id': 'unknown',
         'channel': 'unknown',
         'channel_id': None,
     }
-    
-    # Try to extract agent from filename
-    parts = filename.replace('.jsonl', '').split('-')
-    
-    if parts[0] == 'agent':
-        # Could be OpenClaw format: agent-{agent_id}-{channel}-...
-        # Or Claude Code sub-agent: agent-{hex_id}.jsonl in .claude/projects/
-        if '.claude/projects' in str(filepath):
-            metadata['agent_id'] = 'claude-code'
-            metadata['channel'] = 'terminal'
-        else:
-            if len(parts) >= 2:
-                metadata['agent_id'] = parts[1]
-            if len(parts) >= 3:
-                metadata['channel'] = parts[2]
-            if len(parts) >= 4 and parts[2] in ('discord', 'slack', 'telegram'):
-                metadata['channel_id'] = parts[4] if len(parts) > 4 else parts[3]
-    else:
-        # Format: {agent_id}-{uuid}-timestamp.jsonl or {agent_id}-{channel}-timestamp.jsonl
-        metadata['agent_id'] = parts[0]
-        if len(parts) >= 2:
-            if parts[1] in ('discord', 'slack', 'telegram', 'cron', 'session'):
-                metadata['channel'] = parts[1]
-            else:
-                metadata['channel'] = 'direct'
 
-    # Check for UUID filenames (OpenClaw sub-agent sessions or Claude Code sessions)
-    session_id = filepath.stem
-    try:
-        uuid.UUID(session_id)
-        # It's a UUID filename. Two cases:
-        # 1. OpenClaw active session in agents/{agent_name}/sessions/{uuid}.jsonl
-        # 2. Claude Code session in .claude/projects/{project}/{uuid}.jsonl
-        
-        # Check if inside agents/{name}/sessions/ or agents-archive/{name}/ directory
-        path_str = str(filepath)
-        import re as _re
-        agents_match = _re.search(r'/agents/([^/]+)/sessions/', path_str)
-        archive_match = _re.search(r'/agents-archive[^/]*/([^/]+)/', path_str)
-        if agents_match:
-            metadata['agent_id'] = agents_match.group(1)
-            metadata['channel'] = 'direct'
-        elif archive_match:
-            metadata['agent_id'] = archive_match.group(1)
-            metadata['channel'] = 'direct'
-        else:
-            # Not in agents/ dir — assume Claude Code session
-            metadata['agent_id'] = 'claude-code'
-            metadata['channel'] = 'terminal'
+    # === PHASE 1: Path-based detection (most reliable) ===
 
+    # Pattern: /agents/{agent_name}/sessions/{file}.jsonl (active sessions)
+    agents_match = re.search(r'/agents/([^/]+)/sessions/', path_str)
+    if agents_match:
+        metadata['agent_id'] = _normalize_agent_id(agents_match.group(1))
+        metadata['channel'] = 'direct'
+
+    # Pattern: /agents-archive/{agent_name}/{file} (archived, agent subdirs)
+    if metadata['agent_id'] == 'unknown':
+        archive_subdir = re.search(r'/agents-archive[^/]*/([^/]+)/', path_str)
+        if archive_subdir:
+            metadata['agent_id'] = _normalize_agent_id(archive_subdir.group(1))
+            metadata['channel'] = 'direct'
+
+    # Pattern: /agents-archive-claude/ (synced Claude archive)
+    if metadata['agent_id'] == 'unknown':
+        if '/agents-archive-claude' in path_str:
+            metadata['agent_id'] = 'Claude'
+            metadata['channel'] = 'direct'
+
+    # Pattern: /agents-archive-vps/ (synced VPS archive — these are Kit's)
+    if metadata['agent_id'] == 'unknown':
+        if '/agents-archive-vps/' in path_str:
+            # Files in VPS archive are Kit's unless filename says otherwise
+            metadata['agent_id'] = 'Kit'
+            metadata['channel'] = 'direct'
+
+    # Pattern: /agents-grok-sessions/ or /agents-chat-sessions/
+    if metadata['agent_id'] == 'unknown':
+        grok_match = re.search(r'/agents-grok-sessions/', path_str)
+        chat_match = re.search(r'/agents-chat-sessions/', path_str)
+        if grok_match:
+            metadata['agent_id'] = 'grok'
+            metadata['channel'] = 'direct'
+        elif chat_match:
+            metadata['agent_id'] = 'chat'
+            metadata['channel'] = 'direct'
+
+    # Pattern: .claude/projects/ (Claude Code sessions)
+    if metadata['agent_id'] == 'unknown':
+        if '.claude/projects' in path_str:
+            metadata['agent_id'] = 'CC'
+            metadata['channel'] = 'terminal'
             # Check if tagged as telegram session
+            session_id = filepath.stem
             marker = filepath.parent / 'telegram-sessions.json'
             if marker.exists():
                 try:
@@ -122,8 +160,55 @@ def extract_session_metadata(filepath: Path) -> dict:
                         metadata['channel'] = 'telegram'
                 except:
                     pass
-    except ValueError:
-        pass  # Not a UUID filename, keep existing metadata
+
+    # === PHASE 2: Filename-based detection ===
+
+    # Strip .deleted.* suffix for parsing
+    clean_name = re.sub(r'\.deleted\.\S+$', '', filename)
+    parts = clean_name.replace('.jsonl', '').split('-')
+
+    if parts[0] == 'agent' and len(parts) >= 2:
+        # OpenClaw format: agent-{agent_id}-{channel}-...
+        raw_agent = parts[1]
+        if metadata['agent_id'] == 'unknown' or metadata['agent_id'] in ('Kit', 'Claude'):
+            # Filename agent overrides only if it's a known agent and path gave us a generic answer
+            if raw_agent.lower() in KNOWN_AGENTS:
+                metadata['agent_id'] = _normalize_agent_id(raw_agent)
+        # Always extract channel from filename if available
+        if len(parts) >= 3:
+            metadata['channel'] = parts[2]
+        if len(parts) >= 5 and parts[2] in ('discord', 'slack', 'telegram'):
+            metadata['channel_id'] = '-'.join(parts[3:]) if parts[2] == 'discord' else parts[3]
+
+    # UUID filename in agents/ dir — path already resolved agent above
+    # UUID filename in .claude/projects/ — path already resolved to CC above
+    # Only need to handle UUID filenames with no path match
+    if metadata['agent_id'] == 'unknown':
+        session_id = filepath.stem
+        try:
+            uuid.UUID(session_id)
+            metadata['agent_id'] = 'CC'
+            metadata['channel'] = 'terminal'
+        except ValueError:
+            pass
+
+    # === PHASE 3: Fallback — first filename part ===
+    if metadata['agent_id'] == 'unknown' and parts:
+        raw = parts[0].lower()
+        if raw in KNOWN_AGENTS:
+            metadata['agent_id'] = _normalize_agent_id(raw)
+        elif _is_hex_id(parts[0]):
+            # Hex ID fragment — this is what we're trying to avoid
+            # Try to infer from parent directory name
+            parent = filepath.parent.name
+            if parent.lower() in KNOWN_AGENTS:
+                metadata['agent_id'] = _normalize_agent_id(parent)
+            else:
+                metadata['agent_id'] = 'unknown'
+
+    # Final safety: reject hex-looking agent IDs
+    if _is_hex_id(metadata['agent_id']):
+        metadata['agent_id'] = 'unknown'
 
     return metadata
 

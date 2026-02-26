@@ -101,6 +101,7 @@ def unified_search(
     semantic: bool = None,  # None = auto-detect
     files_only: bool = False,
     convos_only: bool = False,
+    days: int = None,
     limit: int = 10
 ) -> dict:
     """
@@ -128,6 +129,7 @@ def unified_search(
                 query=query,
                 agent=agent,
                 semantic=use_semantic,
+                days=days,
                 limit=limit
             )
             # Deduplicate

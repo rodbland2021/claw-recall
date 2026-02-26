@@ -42,17 +42,21 @@ def keyword_search(
     query: str,
     agent: Optional[str] = None,
     channel: Optional[str] = None,
-    days: Optional[float] = None,
-    limit: int = 20
+    days: Optional[int] = None,
+    limit: int = 20,
+    date_from: Optional[datetime] = None,
+    date_to: Optional[datetime] = None
 ) -> List[SearchResult]:
     """Search using FTS5 full-text search."""
-    
-    # Build FTS query
-    # Escape special characters and add wildcards
-    fts_query = ' '.join(f'"{word}"' for word in query.split())
-    
+
+    # Build FTS query — use AND so all words must be present
+    # FTS5: unquoted words joined by space default to AND in standard syntax
+    words = query.split()
+    # Filter out FTS5 special chars and wrap each word in quotes for safety
+    fts_query = " AND ".join(f'"{word}"' for word in words if word)
+
     sql = """
-        SELECT 
+        SELECT
             m.id,
             m.session_id,
             m.role,
@@ -67,21 +71,29 @@ def keyword_search(
         WHERE messages_fts MATCH ?
     """
     params = [fts_query]
-    
+
     if agent:
         sql += " AND s.agent_id = ?"
         params.append(agent)
-    
+
     if channel:
         sql += " AND s.channel = ?"
         params.append(channel)
-    
+
     if days:
         cutoff = datetime.now() - timedelta(days=days)
         sql += " AND m.timestamp >= ?"
         params.append(cutoff)
-    
-    sql += " ORDER BY score LIMIT ?"
+
+    if date_from:
+        sql += " AND m.timestamp >= ?"
+        params.append(date_from.isoformat())
+
+    if date_to:
+        sql += " AND m.timestamp <= ?"
+        params.append(date_to.isoformat())
+
+    sql += " ORDER BY m.timestamp DESC LIMIT ?"
     params.append(limit)
     
     cursor = conn.execute(sql, params)
@@ -108,13 +120,15 @@ def semantic_search(
     channel: Optional[str] = None,
     days: Optional[int] = None,
     limit: int = 20,
-    openai_client: Optional['OpenAI'] = None
+    openai_client: Optional['OpenAI'] = None,
+    date_from: Optional[datetime] = None,
+    date_to: Optional[datetime] = None
 ) -> List[SearchResult]:
     """Search using embedding similarity."""
-    
+
     if not OPENAI_AVAILABLE or openai_client is None:
         print("⚠️  Semantic search requires OpenAI. Falling back to keyword search.")
-        return keyword_search(conn, query, agent, channel, days, limit)
+        return keyword_search(conn, query, agent, channel, days, limit, date_from=date_from, date_to=date_to)
     
     # Generate query embedding
     response = openai_client.embeddings.create(
@@ -148,14 +162,22 @@ def semantic_search(
     if channel:
         sql += " AND s.channel = ?"
         params.append(channel)
-    
+
     if days:
         cutoff = datetime.now() - timedelta(days=days)
         sql += " AND m.timestamp >= ?"
         params.append(cutoff)
-    
+
+    if date_from:
+        sql += " AND m.timestamp >= ?"
+        params.append(date_from.isoformat())
+
+    if date_to:
+        sql += " AND m.timestamp <= ?"
+        params.append(date_to.isoformat())
+
     cursor = conn.execute(sql, params)
-    
+
     # Calculate similarities
     scored_results = []
     for row in cursor.fetchall():
@@ -174,9 +196,19 @@ def semantic_search(
             score=float(similarity)
         )))
     
-    # Sort by similarity and return top results
-    scored_results.sort(key=lambda x: x[0], reverse=True)
-    return [r for _, r in scored_results[:limit]]
+    # Deduplicate by content fingerprint (same message indexed from multiple sessions)
+    seen = set()
+    unique_results = []
+    for sim, result in scored_results:
+        fingerprint = f"{result.role}:{result.content[:200]}"
+        if fingerprint not in seen:
+            seen.add(fingerprint)
+            unique_results.append((sim, result))
+
+    # Sort by similarity, filter by minimum threshold, return top results
+    unique_results.sort(key=lambda x: x[0], reverse=True)
+    MIN_SIMILARITY = 0.45  # Below this, results are basically noise
+    return [r for sim, r in unique_results[:limit] if sim >= MIN_SIMILARITY]
 
 
 def get_context(
@@ -256,14 +288,16 @@ def search_conversations(
     query: str,
     agent: Optional[str] = None,
     channel: Optional[str] = None,
-    days: Optional[float] = None,
+    days: Optional[int] = None,
     semantic: bool = False,
     limit: int = 10,
-    db_path: Path = DB_PATH
+    db_path: Path = DB_PATH,
+    date_from: Optional[datetime] = None,
+    date_to: Optional[datetime] = None
 ) -> List[SearchResult]:
     """
     Search conversation history.
-    
+
     Args:
         query: Search query
         agent: Filter by agent (kit, cyrus, etc.)
@@ -272,24 +306,26 @@ def search_conversations(
         semantic: Use semantic search instead of keyword
         limit: Maximum results to return
         db_path: Path to database
-    
+        date_from: Only search from this datetime onwards
+        date_to: Only search up to this datetime
+
     Returns:
         List of SearchResult objects
     """
     if not db_path.exists():
         raise FileNotFoundError(f"Database not found: {db_path}")
-    
+
     conn = sqlite3.connect(db_path)
-    
+
     openai_client = None
     if semantic and OPENAI_AVAILABLE:
         openai_client = OpenAI()
-    
+
     if semantic:
-        results = semantic_search(conn, query, agent, channel, days, limit, openai_client)
+        results = semantic_search(conn, query, agent, channel, days, limit, openai_client, date_from=date_from, date_to=date_to)
     else:
-        results = keyword_search(conn, query, agent, channel, days, limit)
-    
+        results = keyword_search(conn, query, agent, channel, days, limit, date_from=date_from, date_to=date_to)
+
     conn.close()
     return results
 

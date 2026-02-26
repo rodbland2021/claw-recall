@@ -14,39 +14,32 @@ log "Starting quick-index..."
 TOTAL_INDEXED=0
 TOTAL_ERRORS=0
 
-# Index local archives + active sessions
-OUTPUT=$(python3 index.py --source ~/.openclaw/agents-archive/ --include-active --incremental --embeddings 2>&1)
-INDEXED=$(echo "$OUTPUT" | grep -oP 'Indexed: \K\d+')
-ERRORS=$(echo "$OUTPUT" | grep -oP 'Errors: \K\d+')
-[ -n "$INDEXED" ] && TOTAL_INDEXED=$((TOTAL_INDEXED + INDEXED))
-[ -n "$ERRORS" ] && TOTAL_ERRORS=$((TOTAL_ERRORS + ERRORS))
-
-# Index VPS archives (synced hourly by sync-archives.sh)
-if [ -d ~/.openclaw/agents-archive-vps ]; then
-    OUTPUT=$(python3 index.py --source ~/.openclaw/agents-archive-vps/ --incremental --embeddings 2>&1)
+index_dir() {
+    local DIR="$1"
+    local LABEL="$2"
+    local EXTRA="$3"
+    if [ ! -d "$DIR" ]; then return; fi
+    OUTPUT=$(python3 index.py --source "$DIR" --incremental --embeddings $EXTRA 2>&1)
     INDEXED=$(echo "$OUTPUT" | grep -oP 'Indexed: \K\d+')
     ERRORS=$(echo "$OUTPUT" | grep -oP 'Errors: \K\d+')
     [ -n "$INDEXED" ] && TOTAL_INDEXED=$((TOTAL_INDEXED + INDEXED))
     [ -n "$ERRORS" ] && TOTAL_ERRORS=$((TOTAL_ERRORS + ERRORS))
-fi
+}
 
-# Index laptop Claude Code sessions (synced by laptop cron)
-if [ -d ~/.claude/projects-laptop ]; then
-    OUTPUT=$(python3 index.py --source ~/.claude/projects-laptop/ --incremental --embeddings 2>&1)
-    INDEXED=$(echo "$OUTPUT" | grep -oP 'Indexed: \K\d+')
-    ERRORS=$(echo "$OUTPUT" | grep -oP 'Errors: \K\d+')
-    [ -n "$INDEXED" ] && TOTAL_INDEXED=$((TOTAL_INDEXED + INDEXED))
-    [ -n "$ERRORS" ] && TOTAL_ERRORS=$((TOTAL_ERRORS + ERRORS))
-fi
+# Kit's own archives + active sessions
+index_dir ~/.openclaw/agents-archive/ "Kit archives" "--include-active"
 
-# Index local Claude Code sessions
-if [ -d ~/.claude/projects ]; then
-    OUTPUT=$(python3 index.py --source ~/.claude/projects/ --incremental --embeddings 2>&1)
-    INDEXED=$(echo "$OUTPUT" | grep -oP 'Indexed: \K\d+')
-    ERRORS=$(echo "$OUTPUT" | grep -oP 'Errors: \K\d+')
-    [ -n "$INDEXED" ] && TOTAL_INDEXED=$((TOTAL_INDEXED + INDEXED))
-    [ -n "$ERRORS" ] && TOTAL_ERRORS=$((TOTAL_ERRORS + ERRORS))
-fi
+# Claude (local OpenClaw) archives — synced hourly by sync-archives.sh
+index_dir ~/.openclaw/agents-archive-claude/ "Claude archives"
+
+# Claude Code (desktop) archives — synced hourly by sync-archives.sh
+index_dir ~/.openclaw/agents-archive-cc/ "CC archives"
+
+# Grok sessions
+index_dir ~/.openclaw/agents-grok-sessions/ "Grok sessions"
+
+# Chat sessions
+index_dir ~/.openclaw/agents-chat-sessions/ "Chat sessions"
 
 if [ "$TOTAL_INDEXED" -gt 0 ] || [ "$TOTAL_ERRORS" -gt 0 ]; then
     log "Done: indexed=$TOTAL_INDEXED errors=$TOTAL_ERRORS"
