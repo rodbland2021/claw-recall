@@ -1177,7 +1177,7 @@ if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--port', '-p', type=int, default=8765, help='Port to run on')
-    parser.add_argument('--host', default='100.82.195.86', help='Host to bind to')
+    parser.add_argument('--host', default='100.82.195.86', help='Host to bind to (Tailscale IP)')
     args = parser.parse_args()
 
     print(f"Recall Web Interface running at http://localhost:{args.port}")

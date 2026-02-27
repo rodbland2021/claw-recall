@@ -79,19 +79,6 @@ CREATE TABLE IF NOT EXISTS embeddings (
 
 CREATE INDEX IF NOT EXISTS idx_embeddings_message ON embeddings(message_id);
 
--- Entities table for extracted mentions (future enhancement)
-CREATE TABLE IF NOT EXISTS entities (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    message_id INTEGER NOT NULL,
-    entity_type TEXT NOT NULL,  -- person, project, decision, url, etc.
-    entity_value TEXT NOT NULL,
-    confidence REAL DEFAULT 1.0,
-    FOREIGN KEY (message_id) REFERENCES messages(id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_entities_type ON entities(entity_type);
-CREATE INDEX IF NOT EXISTS idx_entities_value ON entities(entity_value);
-
 -- Index tracking to avoid re-indexing
 CREATE TABLE IF NOT EXISTS index_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -213,162 +213,111 @@ def extract_session_metadata(filepath: Path) -> dict:
     return metadata
 
 
+TOOL_RESULT_ROLES = {'toolResult', 'tool_result', 'tool-result'}
+CC_SYSTEM_TAG_RE = re.compile(
+    r'<(?:system-reminder|local-command-\w+|command-\w+)[^>]*>.*?'
+    r'</(?:system-reminder|local-command-\w+|command-\w+)>',
+    re.DOTALL
+)
+
+
+def _parse_timestamp(entry: dict) -> Optional[datetime]:
+    """Extract timestamp from a session entry."""
+    ts_str = entry.get('timestamp')
+    if ts_str is None:
+        return None
+    try:
+        if isinstance(ts_str, str):
+            return datetime.fromisoformat(ts_str.replace('Z', '+00:00'))
+        if isinstance(ts_str, (int, float)):
+            return datetime.fromtimestamp(ts_str / 1000)
+    except (ValueError, OSError, OverflowError):
+        pass
+    return None
+
+
+def _extract_text(raw_content) -> Optional[str]:
+    """Extract plain text from a message's content field (string or list of parts)."""
+    if isinstance(raw_content, str):
+        return raw_content
+    if isinstance(raw_content, list):
+        parts = [p.get('text', '') for p in raw_content
+                 if isinstance(p, dict) and p.get('type') == 'text']
+        return ' '.join(parts) if parts else None
+    return None
+
+
+def _try_timestamp_from_content(content: str) -> Optional[datetime]:
+    """Try to extract timestamp from message text like [2026-02-06 10:25 GMT+11]."""
+    ts_match = re.search(r'\[(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})', content)
+    if ts_match:
+        try:
+            return datetime.strptime(f"{ts_match.group(1)} {ts_match.group(2)}", "%Y-%m-%d %H:%M")
+        except ValueError:
+            pass
+    return None
+
+
 def extract_messages(filepath: Path) -> list[dict]:
-    """Extract all messages from a session file."""
+    """Extract all messages from a session file (OpenClaw, Claude Code, or legacy format)."""
     messages = []
     first_timestamp = None
     last_timestamp = None
-    
+
     for entry in parse_session_file(filepath):
         entry_type = entry.get('type')
-        
-        # OpenClaw session format: {"type": "message", "message": {...}}
+        role = None
+        raw_content = None
+        is_cc = False
+
         if entry_type == 'message':
+            # OpenClaw: {"type": "message", "message": {...}}
             msg = entry.get('message', {})
             role = msg.get('role')
             raw_content = msg.get('content', '')
-            timestamp = None
-            
-            # Parse timestamp from entry
-            if 'timestamp' in entry:
-                try:
-                    ts_str = entry['timestamp']
-                    if isinstance(ts_str, str):
-                        timestamp = datetime.fromisoformat(ts_str.replace('Z', '+00:00'))
-                    elif isinstance(ts_str, (int, float)):
-                        timestamp = datetime.fromtimestamp(ts_str / 1000)
-                except:
-                    pass
-            
-            # Extract text content
-            content = None
-            if isinstance(raw_content, str):
-                content = raw_content
-            elif isinstance(raw_content, list):
-                # Multi-part content (text + images + tool calls)
-                text_parts = []
-                for p in raw_content:
-                    if isinstance(p, dict):
-                        if p.get('type') == 'text':
-                            text_parts.append(p.get('text', ''))
-                        # Skip thinking, toolCall, etc.
-                content = ' '.join(text_parts)
-            
-            # Skip tool results and empty content
-            if role == 'toolResult':
-                continue
-            if not content or not content.strip():
-                continue
-            
-            content = content.strip()
-            
-            # Also try to extract timestamp from message content
-            # Format: [2026-02-06 10:25 GMT+11]
-            if timestamp is None:
-                ts_match = re.search(r'\[(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})', content)
-                if ts_match:
-                    try:
-                        timestamp = datetime.strptime(
-                            f"{ts_match.group(1)} {ts_match.group(2)}", 
-                            "%Y-%m-%d %H:%M"
-                        )
-                    except:
-                        pass
-            
-            messages.append({
-                'role': role,
-                'content': content,
-                'timestamp': timestamp,
-                'message_index': len(messages)
-            })
-            
-            if timestamp:
-                if first_timestamp is None:
-                    first_timestamp = timestamp
-                last_timestamp = timestamp
-        
-        # Claude Code session format: {"type": "user"/"assistant", "message": {"role": ..., "content": ...}}
         elif entry_type in ('user', 'assistant') and 'message' in entry:
+            # Claude Code: {"type": "user"/"assistant", "message": {"role": ..., "content": ...}}
             msg = entry.get('message', {})
             role = msg.get('role', entry_type)
             raw_content = msg.get('content', '')
-            timestamp = None
+            is_cc = True
+        elif 'role' in entry and 'content' in entry and entry_type is None:
+            # Legacy: {"role": "user", "content": "..."}
+            role = entry.get('role')
+            raw_content = entry.get('content', '')
+        else:
+            continue
 
-            # CC entries may have timestamp at top level
-            if 'timestamp' in entry:
-                try:
-                    ts_str = entry['timestamp']
-                    if isinstance(ts_str, str):
-                        timestamp = datetime.fromisoformat(ts_str.replace('Z', '+00:00'))
-                    elif isinstance(ts_str, (int, float)):
-                        timestamp = datetime.fromtimestamp(ts_str / 1000)
-                except:
-                    pass
+        if role in TOOL_RESULT_ROLES:
+            continue
 
-            content = None
-            if isinstance(raw_content, str):
-                content = raw_content
-            elif isinstance(raw_content, list):
-                text_parts = []
-                for p in raw_content:
-                    if isinstance(p, dict) and p.get('type') == 'text':
-                        text_parts.append(p.get('text', ''))
-                content = ' '.join(text_parts)
+        content = _extract_text(raw_content)
+        if not content or not content.strip():
+            continue
+        content = content.strip()
 
-            if role in ('toolResult', 'tool_result', 'tool-result'):
-                continue
-            if not content or not content.strip():
-                continue
-
-            content = content.strip()
-
-            # Strip XML system tags that CC wraps around messages
-            content = re.sub(r'<(?:system-reminder|local-command-\w+|command-\w+)[^>]*>.*?</(?:system-reminder|local-command-\w+|command-\w+)>', '', content, flags=re.DOTALL).strip()
+        # Strip CC system tags
+        if is_cc:
+            content = CC_SYSTEM_TAG_RE.sub('', content).strip()
             if not content:
                 continue
 
-            messages.append({
-                'role': role,
-                'content': content,
-                'timestamp': timestamp,
-                'message_index': len(messages)
-            })
+        timestamp = _parse_timestamp(entry)
+        if timestamp is None:
+            timestamp = _try_timestamp_from_content(content)
 
-            if timestamp:
-                if first_timestamp is None:
-                    first_timestamp = timestamp
-                last_timestamp = timestamp
+        messages.append({
+            'role': role,
+            'content': content,
+            'timestamp': timestamp,
+            'message_index': len(messages)
+        })
 
-        # Also handle legacy format: {"role": "user", "content": "..."}
-        elif 'role' in entry and 'content' in entry and entry_type is None:
-            role = entry.get('role')
-            raw_content = entry.get('content', '')
-            timestamp = None
-            
-            content = None
-            if isinstance(raw_content, str):
-                content = raw_content
-            elif isinstance(raw_content, list):
-                text_parts = []
-                for p in raw_content:
-                    if isinstance(p, dict) and p.get('type') == 'text':
-                        text_parts.append(p.get('text', ''))
-                content = ' '.join(text_parts)
-            
-            if role in ('toolResult', 'tool_result'):
-                continue
-            if not content or not content.strip():
-                continue
-            
-            content = content.strip()
-            
-            messages.append({
-                'role': role,
-                'content': content,
-                'timestamp': timestamp,
-                'message_index': len(messages)
-            })
-    
+        if timestamp:
+            if first_timestamp is None:
+                first_timestamp = timestamp
+            last_timestamp = timestamp
+
     return messages, first_timestamp, last_timestamp
 
 

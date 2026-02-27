@@ -4,7 +4,6 @@ Convo Memory — Search Interface
 Search past conversations using keywords or semantic similarity.
 """
 
-import argparse
 import sqlite3
 import numpy as np
 from pathlib import Path
@@ -21,6 +20,15 @@ except ImportError:
 
 DB_PATH = Path(__file__).parent / "convo_memory.db"
 EMBEDDING_MODEL = "text-embedding-3-small"
+
+# Cached embedding matrix for vectorized semantic search
+_embedding_cache = {
+    "matrix": None,       # np.ndarray of shape (N, dim)
+    "metadata": None,     # list of (message_id, session_id, agent_id, channel, role, content, timestamp)
+    "norms": None,        # precomputed row norms
+    "count": 0,           # row count when cache was built
+    "filters_hash": None, # hash of filter params to invalidate on filter change
+}
 
 
 @dataclass
@@ -49,11 +57,9 @@ def keyword_search(
 ) -> List[SearchResult]:
     """Search using FTS5 full-text search."""
 
-    # Build FTS query — use AND so all words must be present
-    # FTS5: unquoted words joined by space default to AND in standard syntax
-    words = query.split()
-    # Filter out FTS5 special chars and wrap each word in quotes for safety
-    fts_query = " AND ".join(f'"{word}"' for word in words if word)
+    # Build FTS query — AND all words so results must contain every term
+    words = [w for w in query.split() if w]
+    fts_query = " AND ".join(f'"{word}"' for word in words)
 
     sql = """
         SELECT
@@ -93,7 +99,7 @@ def keyword_search(
         sql += " AND m.timestamp <= ?"
         params.append(date_to.isoformat())
 
-    sql += " ORDER BY m.timestamp DESC LIMIT ?"
+    sql += " ORDER BY bm25(messages_fts) ASC LIMIT ?"  # bm25 is negative; lower = better match
     params.append(limit)
     
     cursor = conn.execute(sql, params)
@@ -113,6 +119,73 @@ def keyword_search(
     return results
 
 
+def _build_embedding_cache(conn: sqlite3.Connection, agent=None, channel=None,
+                            days=None, date_from=None, date_to=None):
+    """Load embeddings into a numpy matrix for vectorized search.
+
+    Caches the matrix so subsequent queries don't re-read from SQLite.
+    """
+    global _embedding_cache
+
+    # Build filter hash to detect when we need to rebuild
+    filter_key = f"{agent}|{channel}|{days}|{date_from}|{date_to}"
+
+    # Check if current row count matches cache
+    row_count = conn.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0]
+    if (_embedding_cache["matrix"] is not None
+            and _embedding_cache["count"] == row_count
+            and _embedding_cache["filters_hash"] == filter_key):
+        return  # Cache is still valid
+
+    sql = """
+        SELECT m.id, m.session_id, s.agent_id, s.channel, m.role, m.content, m.timestamp, e.embedding
+        FROM embeddings e
+        JOIN messages m ON e.message_id = m.id
+        JOIN sessions s ON m.session_id = s.id
+        WHERE 1=1
+    """
+    params = []
+    if agent:
+        sql += " AND s.agent_id = ?"
+        params.append(agent)
+    if channel:
+        sql += " AND s.channel = ?"
+        params.append(channel)
+    if days:
+        cutoff = datetime.now() - timedelta(days=days)
+        sql += " AND m.timestamp >= ?"
+        params.append(cutoff)
+    if date_from:
+        sql += " AND m.timestamp >= ?"
+        params.append(date_from.isoformat())
+    if date_to:
+        sql += " AND m.timestamp <= ?"
+        params.append(date_to.isoformat())
+
+    rows = conn.execute(sql, params).fetchall()
+    if not rows:
+        _embedding_cache = {"matrix": np.empty((0, 0)), "metadata": [], "norms": np.empty(0),
+                            "count": row_count, "filters_hash": filter_key}
+        return
+
+    metadata = []
+    embeddings_list = []
+    for row in rows:
+        metadata.append(row[:7])  # (id, session_id, agent_id, channel, role, content, timestamp)
+        embeddings_list.append(np.frombuffer(row[7], dtype=np.float32))
+
+    matrix = np.vstack(embeddings_list)  # shape: (N, dim)
+    norms = np.linalg.norm(matrix, axis=1)  # precompute for cosine similarity
+
+    _embedding_cache = {
+        "matrix": matrix,
+        "metadata": metadata,
+        "norms": norms,
+        "count": row_count,
+        "filters_hash": filter_key,
+    }
+
+
 def semantic_search(
     conn: sqlite3.Connection,
     query: str,
@@ -124,91 +197,60 @@ def semantic_search(
     date_from: Optional[datetime] = None,
     date_to: Optional[datetime] = None
 ) -> List[SearchResult]:
-    """Search using embedding similarity."""
+    """Search using vectorized embedding similarity (numpy matrix multiply)."""
 
     if not OPENAI_AVAILABLE or openai_client is None:
         print("⚠️  Semantic search requires OpenAI. Falling back to keyword search.")
         return keyword_search(conn, query, agent, channel, days, limit, date_from=date_from, date_to=date_to)
-    
+
+    # Build/refresh the embedding matrix cache
+    _build_embedding_cache(conn, agent, channel, days, date_from, date_to)
+
+    if _embedding_cache["matrix"] is None or len(_embedding_cache["metadata"]) == 0:
+        return []
+
     # Generate query embedding
-    response = openai_client.embeddings.create(
-        model=EMBEDDING_MODEL,
-        input=[query]
-    )
-    query_embedding = np.array(response.data[0].embedding, dtype=np.float32)
-    
-    # Build query for messages with embeddings
-    sql = """
-        SELECT 
-            m.id,
-            m.session_id,
-            m.role,
-            m.content,
-            m.timestamp,
-            s.agent_id,
-            s.channel,
-            e.embedding
-        FROM embeddings e
-        JOIN messages m ON e.message_id = m.id
-        JOIN sessions s ON m.session_id = s.id
-        WHERE 1=1
-    """
-    params = []
-    
-    if agent:
-        sql += " AND s.agent_id = ?"
-        params.append(agent)
-    
-    if channel:
-        sql += " AND s.channel = ?"
-        params.append(channel)
+    response = openai_client.embeddings.create(model=EMBEDDING_MODEL, input=[query])
+    q_emb = np.array(response.data[0].embedding, dtype=np.float32)
+    q_norm = np.linalg.norm(q_emb)
 
-    if days:
-        cutoff = datetime.now() - timedelta(days=days)
-        sql += " AND m.timestamp >= ?"
-        params.append(cutoff)
+    # Vectorized cosine similarity: dot(matrix, query) / (norms * q_norm)
+    matrix = _embedding_cache["matrix"]
+    norms = _embedding_cache["norms"]
+    similarities = matrix @ q_emb / (norms * q_norm + 1e-10)
 
-    if date_from:
-        sql += " AND m.timestamp >= ?"
-        params.append(date_from.isoformat())
+    # Get top candidates (more than limit for dedup headroom)
+    top_k = min(limit * 3, len(similarities))
+    top_indices = np.argpartition(similarities, -top_k)[-top_k:]
+    top_indices = top_indices[np.argsort(similarities[top_indices])[::-1]]
 
-    if date_to:
-        sql += " AND m.timestamp <= ?"
-        params.append(date_to.isoformat())
-
-    cursor = conn.execute(sql, params)
-
-    # Calculate similarities
-    scored_results = []
-    for row in cursor.fetchall():
-        embedding = np.frombuffer(row[7], dtype=np.float32)
-        similarity = np.dot(query_embedding, embedding) / (
-            np.linalg.norm(query_embedding) * np.linalg.norm(embedding)
-        )
-        
-        scored_results.append((similarity, SearchResult(
-            session_id=row[1],
-            agent_id=row[5],
-            channel=row[6],
-            role=row[2],
-            content=row[3],
-            timestamp=datetime.fromisoformat(row[4]) if row[4] else None,
-            score=float(similarity)
-        )))
-    
-    # Deduplicate by content fingerprint (same message indexed from multiple sessions)
+    # Build results with dedup
+    MIN_SIMILARITY = 0.45
     seen = set()
-    unique_results = []
-    for sim, result in scored_results:
-        fingerprint = f"{result.role}:{result.content[:200]}"
-        if fingerprint not in seen:
-            seen.add(fingerprint)
-            unique_results.append((sim, result))
+    results = []
+    for idx in top_indices:
+        sim = float(similarities[idx])
+        if sim < MIN_SIMILARITY:
+            break
+        meta = _embedding_cache["metadata"][idx]
+        # meta: (id, session_id, agent_id, channel, role, content, timestamp)
+        fingerprint = f"{meta[4]}:{meta[5][:200]}"
+        if fingerprint in seen:
+            continue
+        seen.add(fingerprint)
+        results.append(SearchResult(
+            session_id=meta[1],
+            agent_id=meta[2],
+            channel=meta[3],
+            role=meta[4],
+            content=meta[5],
+            timestamp=datetime.fromisoformat(meta[6]) if meta[6] else None,
+            score=sim,
+        ))
+        if len(results) >= limit:
+            break
 
-    # Sort by similarity, filter by minimum threshold, return top results
-    unique_results.sort(key=lambda x: x[0], reverse=True)
-    MIN_SIMILARITY = 0.45  # Below this, results are basically noise
-    return [r for sim, r in unique_results[:limit] if sim >= MIN_SIMILARITY]
+    return results
 
 
 def get_context(
@@ -240,47 +282,12 @@ def deduplicate_results(results: List[SearchResult]) -> List[SearchResult]:
     """Remove duplicate messages that appear in multiple session snapshots."""
     seen_content = set()
     unique = []
-    
     for r in results:
-        # Use first 500 chars + role as fingerprint
         fingerprint = f"{r.role}:{r.content[:500]}"
         if fingerprint not in seen_content:
             seen_content.add(fingerprint)
             unique.append(r)
-    
     return unique
-
-
-def format_results(results: List[SearchResult], verbose: bool = False) -> str:
-    """Format search results for display."""
-    if not results:
-        return "No results found."
-    
-    # Deduplicate before displaying
-    results = deduplicate_results(results)
-    
-    output = []
-    for i, r in enumerate(results, 1):
-        ts = r.timestamp.strftime("%Y-%m-%d %H:%M") if r.timestamp else "unknown"
-        content_preview = r.content[:300] + "..." if len(r.content) > 300 else r.content
-        
-        output.append(f"\n{'='*60}")
-        output.append(f"#{i} | Agent: {r.agent_id} | Channel: {r.channel} | {ts}")
-        output.append(f"Score: {r.score:.3f} | Session: {r.session_id[:20]}...")
-        output.append(f"{'='*60}")
-        output.append(f"[{r.role}] {content_preview}")
-        
-        if verbose and r.context_before:
-            output.append("\n--- Context Before ---")
-            for ctx in r.context_before:
-                output.append(f"  {ctx}")
-        
-        if verbose and r.context_after:
-            output.append("\n--- Context After ---")
-            for ctx in r.context_after:
-                output.append(f"  {ctx}")
-    
-    return '\n'.join(output)
 
 
 # Python API for agents
@@ -330,50 +337,7 @@ def search_conversations(
     return results
 
 
-def main():
-    parser = argparse.ArgumentParser(description='Search conversation history')
-    parser.add_argument('query', nargs='+', help='Search query')
-    parser.add_argument('--agent', '-a', help='Filter by agent ID')
-    parser.add_argument('--channel', '-c', help='Filter by channel')
-    parser.add_argument('--days', '-d', type=int, help='Only search last N days')
-    parser.add_argument('--semantic', '-s', action='store_true', help='Use semantic search')
-    parser.add_argument('--limit', '-n', type=int, default=10, help='Max results')
-    parser.add_argument('--verbose', '-v', action='store_true', help='Show context')
-    parser.add_argument('--db', type=Path, default=DB_PATH, help='Database path')
-    
-    args = parser.parse_args()
-    query = ' '.join(args.query)
-    
-    if not args.db.exists():
-        print(f"❌ Database not found: {args.db}")
-        print("Run setup_db.py and index.py first")
-        return
-    
-    conn = sqlite3.connect(args.db)
-    
-    openai_client = None
-    if args.semantic and OPENAI_AVAILABLE:
-        openai_client = OpenAI()
-    
-    print(f"🔍 Searching: '{query}'")
-    if args.agent:
-        print(f"   Agent: {args.agent}")
-    if args.channel:
-        print(f"   Channel: {args.channel}")
-    if args.days:
-        print(f"   Last {args.days} days")
-    print(f"   Mode: {'semantic' if args.semantic else 'keyword'}")
-    
-    if args.semantic:
-        results = semantic_search(conn, query, args.agent, args.channel, args.days, args.limit, openai_client)
-    else:
-        results = keyword_search(conn, query, args.agent, args.channel, args.days, args.limit)
-    
-    print(format_results(results, args.verbose))
-    print(f"\n📊 Found {len(results)} results")
-    
-    conn.close()
-
-
 if __name__ == "__main__":
-    main()
+    # Use claw-recall CLI instead — this module is a library
+    print("Use the claw-recall CLI for searching. This module is imported as a library.")
+    raise SystemExit(1)

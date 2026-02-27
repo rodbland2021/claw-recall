@@ -12,11 +12,10 @@ from datetime import datetime
 from typing import List, Optional, Dict, Tuple
 from dataclasses import dataclass
 from functools import lru_cache
-import time
 
-# Simple cache for file contents
+# Simple cache for file contents (bounded to prevent unbounded memory growth)
 _file_cache: Dict[str, Tuple[float, List[str]]] = {}
-_CACHE_TTL = 300  # 5 minutes
+_CACHE_MAX_ENTRIES = 500
 
 # Agent workspaces to search
 AGENT_DIRS = [
@@ -50,10 +49,13 @@ def _get_file_lines(filepath: Path) -> List[str]:
         if cached_mtime == mtime:
             return cached_lines
     
-    # Read and cache
+    # Read and cache (evict oldest entries if cache is full)
     try:
         with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
             lines = f.readlines()
+        if len(_file_cache) >= _CACHE_MAX_ENTRIES:
+            # Remove first entry (oldest insertion)
+            _file_cache.pop(next(iter(_file_cache)))
         _file_cache[path_str] = (mtime, lines)
         return lines
     except Exception:
@@ -140,34 +142,52 @@ def search_files(
                     if not lines:
                         continue
                     
+                    # Build a sliding window of text so multi-word queries
+                    # can match across nearby lines (within WINDOW_SIZE lines)
+                    WINDOW_SIZE = 5
+                    matched_lines = set()  # avoid duplicate matches from overlapping windows
+
                     for i, line in enumerate(lines):
+                        if i in matched_lines:
+                            continue
+
+                        # Quick check: does this line contain at least one query word?
                         line_lower = line.lower()
-                        
-                        # Check if all query words are in the line
+                        if not any(word in line_lower for word in query_words):
+                            continue
+
+                        # Check single line first (fast path)
                         if all(word in line_lower for word in query_words):
-                            # Get context
-                            start = max(0, i - context_lines)
-                            end = min(len(lines), i + context_lines + 1)
-                            
-                            context_before = [l.rstrip() for l in lines[start:i]]
-                            context_after = [l.rstrip() for l in lines[i+1:end]]
-                            
-                            # Calculate relevance score (more matching words = higher)
+                            word_matches = len(query_words)
+                        else:
+                            # Check within a window of nearby lines
+                            win_start = max(0, i - WINDOW_SIZE // 2)
+                            win_end = min(len(lines), i + WINDOW_SIZE // 2 + 1)
+                            window_text = ' '.join(l.lower() for l in lines[win_start:win_end])
+                            if not all(word in window_text for word in query_words):
+                                continue
                             word_matches = sum(1 for word in query_words if word in line_lower)
-                            score = word_matches / len(query_words)
-                            
-                            results.append(FileMatch(
-                                path=str(filepath),
-                                agent=get_agent_from_path(filepath),
-                                line_num=i + 1,
-                                line=line.rstrip(),
-                                context_before=context_before,
-                                context_after=context_after,
-                                score=score
-                            ))
-                            
-                            if len(results) >= limit * 2:  # Get extra for dedup
-                                break
+
+                        start = max(0, i - context_lines)
+                        end = min(len(lines), i + context_lines + 1)
+                        context_before = [l.rstrip() for l in lines[start:i]]
+                        context_after = [l.rstrip() for l in lines[i+1:end]]
+
+                        score = word_matches / len(query_words)
+
+                        results.append(FileMatch(
+                            path=str(filepath),
+                            agent=get_agent_from_path(filepath),
+                            line_num=i + 1,
+                            line=line.rstrip(),
+                            context_before=context_before,
+                            context_after=context_after,
+                            score=score
+                        ))
+                        matched_lines.add(i)
+
+                        if len(results) >= limit * 2:
+                            break
                                 
                 except Exception as e:
                     continue

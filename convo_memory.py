@@ -89,25 +89,18 @@ def recall_semantic(
 
 
 def _results_to_dicts(results: List[SearchResult]) -> List[dict]:
-    """Convert SearchResult objects to simple dicts, deduplicating."""
-    seen_content = set()
-    unique = []
-    
-    for r in results:
-        # Use first 500 chars + role as fingerprint
-        fingerprint = f"{r.role}:{r.content[:500]}"
-        if fingerprint not in seen_content:
-            seen_content.add(fingerprint)
-            unique.append({
-                "agent": r.agent_id,
-                "channel": r.channel,
-                "role": r.role,
-                "content": r.content[:1000],  # Truncate for context efficiency
-                "timestamp": r.timestamp.isoformat() if r.timestamp else None,
-                "score": round(r.score, 3)
-            })
-    
-    return unique
+    """Convert SearchResult objects to simple dicts."""
+    return [
+        {
+            "agent": r.agent_id,
+            "channel": r.channel,
+            "role": r.role,
+            "content": r.content[:1000],
+            "timestamp": r.timestamp.isoformat() if r.timestamp else None,
+            "score": round(r.score, 3)
+        }
+        for r in results
+    ]
 
 
 # For testing
