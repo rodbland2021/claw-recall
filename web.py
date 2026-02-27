@@ -14,6 +14,28 @@ from recall import unified_search
 from search import DB_PATH
 import re
 
+# Shared SQL filter for valid agent sessions (excludes hex IDs, internal, noise)
+VALID_AGENT_FILTER = """
+    s.message_count > 2
+    AND LENGTH(s.agent_id) BETWEEN 2 AND 14
+    AND s.agent_id NOT LIKE 'agent:%'
+    AND s.agent_id NOT GLOB '[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]*'
+    AND s.agent_id NOT IN ('boot', 'acompact', 'compact')
+"""
+
+
+def _safe_int(value, default, lo=None, hi=None):
+    """Parse an int from a request param, with bounds clamping."""
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return default
+    if lo is not None:
+        n = max(lo, n)
+    if hi is not None:
+        n = min(hi, n)
+    return n
+
 
 def generate_deep_link(content: str) -> str | None:
     """
@@ -44,18 +66,14 @@ def index():
 @app.route('/agents')
 def agents_endpoint():
     """Return list of agents with session counts (for dynamic pills/dropdown)."""
-    days = int(request.args.get('days', '14'))
+    days = _safe_int(request.args.get('days', '14'), 14, lo=0)
     try:
         conn = sqlite3.connect(str(DB_PATH))
-        sql = """
+        sql = f"""
             SELECT CASE WHEN s.agent_id = 'Kit' THEN 'main' ELSE s.agent_id END as norm_agent,
                    COUNT(*) as cnt
             FROM sessions s
-            WHERE s.message_count > 2
-              AND LENGTH(s.agent_id) BETWEEN 2 AND 14
-              AND s.agent_id NOT LIKE 'agent:%'
-              AND s.agent_id NOT GLOB '[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]*'
-              AND s.agent_id NOT IN ('boot', 'acompact', 'compact')
+            WHERE {VALID_AGENT_FILTER}
         """
         params = []
         if days > 0:
@@ -80,16 +98,20 @@ def search_endpoint():
     if not query:
         return jsonify({"error": "No query provided"})
 
-    days = int(request.args.get('days', '0'))  # 0 = all time
-    results = unified_search(
-        query=query,
-        agent=agent,
-        semantic=semantic,
-        files_only=files_only,
-        convos_only=convos_only,
-        days=days if days > 0 else None,
-        limit=20
-    )
+    days = _safe_int(request.args.get('days', '0'), 0, lo=0)
+
+    try:
+        results = unified_search(
+            query=query,
+            agent=agent,
+            semantic=semantic,
+            files_only=files_only,
+            convos_only=convos_only,
+            days=days if days > 0 else None,
+            limit=20
+        )
+    except Exception as e:
+        return jsonify({"error": f"Search failed: {e}", "conversations": [], "files": [], "summary": ""}), 500
 
     # Post-process conversation results: add deep links, session_id, message_id
     for convo in results.get("conversations", []):
@@ -97,7 +119,6 @@ def search_endpoint():
         convo["deepLink"] = generate_deep_link(full_content)
 
         # Resolve session_id and message_id for context expansion
-        # The unified_search doesn't include these, so look them up
         if "session_id" not in convo:
             _enrich_convo_with_session(convo)
 
@@ -125,8 +146,8 @@ def _enrich_convo_with_session(convo: dict):
             convo["message_id"] = row[0]
             convo["session_id"] = row[1]
         conn.close()
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[recall-web] enrich error: {e}")
 
 
 @app.route('/context')
@@ -134,7 +155,7 @@ def context_endpoint():
     """Return surrounding messages for a given message in a session."""
     session_id = request.args.get('session_id', '')
     message_id = request.args.get('message_id', '')
-    radius = int(request.args.get('radius', '5'))
+    radius = _safe_int(request.args.get('radius', '5'), 5, lo=1, hi=100)
 
     if not session_id:
         return jsonify({"error": "session_id required"}), 400
@@ -142,11 +163,10 @@ def context_endpoint():
     try:
         conn = sqlite3.connect(str(DB_PATH))
 
-        # Find the message_index of the target message
         if message_id:
             cursor = conn.execute(
                 "SELECT message_index FROM messages WHERE id = ? AND session_id = ?",
-                (int(message_id), session_id)
+                (_safe_int(message_id, 0, lo=0), session_id)
             )
         else:
             return jsonify({"error": "message_id required"}), 400
@@ -158,7 +178,6 @@ def context_endpoint():
 
         target_index = row[0]
 
-        # Get surrounding messages
         cursor = conn.execute("""
             SELECT id, role, content, message_index, timestamp
             FROM messages
@@ -179,7 +198,6 @@ def context_endpoint():
                 "is_match": r[3] == target_index
             })
 
-        # Check if there are more messages before/after
         min_idx = conn.execute(
             "SELECT MIN(message_index) FROM messages WHERE session_id = ?",
             (session_id,)
@@ -209,20 +227,19 @@ def context_endpoint():
 def activity_endpoint():
     """Browse recent agent conversations — no search query needed."""
     agent = request.args.get('agent', '') or None
-    days = int(request.args.get('days', '14'))
-    limit = min(int(request.args.get('limit', '30')), 100)
+    days = _safe_int(request.args.get('days', '14'), 14, lo=0)
+    limit = _safe_int(request.args.get('limit', '30'), 30, lo=0, hi=100)
 
     try:
         conn = sqlite3.connect(str(DB_PATH))
         conn.row_factory = sqlite3.Row
 
-        # Get recent sessions for the specified agent (or all)
-        sql = """
+        sql = f"""
             SELECT s.id, s.agent_id, s.started_at, s.message_count,
                    (SELECT content FROM messages m WHERE m.session_id = s.id AND m.role = 'user' ORDER BY m.message_index ASC LIMIT 1) as first_user_msg,
                    (SELECT content FROM messages m WHERE m.session_id = s.id AND m.role = 'assistant' ORDER BY m.message_index DESC LIMIT 1) as last_assistant_msg
             FROM sessions s
-            WHERE s.message_count > 2 AND LENGTH(s.agent_id) < 15 AND s.agent_id NOT LIKE 'agent:%' AND s.agent_id NOT GLOB '[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]*'
+            WHERE {VALID_AGENT_FILTER}
         """
         params = []
         if agent:
@@ -249,11 +266,10 @@ def activity_endpoint():
                 "last_assistant_message": last_msg,
             })
 
-        # Also get agent summary counts
-        count_sql = """
+        count_sql = f"""
             SELECT s.agent_id, COUNT(*) as cnt
             FROM sessions s
-            WHERE s.message_count > 2 AND LENGTH(s.agent_id) < 15 AND s.agent_id NOT LIKE 'agent:%' AND s.agent_id NOT GLOB '[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]*'
+            WHERE {VALID_AGENT_FILTER}
         """
         count_params = []
         if days > 0:
@@ -275,19 +291,13 @@ def activity_endpoint():
 
 @app.route('/session')
 def session_endpoint():
-    """Return messages for a session, with optional windowed loading.
-
-    Params:
-        session_id: required
-        around: message_index to center on (optional, loads all if omitted but capped)
-        window: number of messages to load (default 30, max 60)
-    """
+    """Return messages for a session, with optional windowed loading."""
     session_id = request.args.get('session_id', '')
     if not session_id:
         return jsonify({"error": "session_id required"}), 400
 
     around = request.args.get('around', None)
-    window = min(int(request.args.get('window', '30')), 60)
+    window = _safe_int(request.args.get('window', '30'), 30, lo=1, hi=60)
 
     try:
         conn = sqlite3.connect(str(DB_PATH))
@@ -302,8 +312,7 @@ def session_endpoint():
         total = sess[3] or 0
 
         if around is not None:
-            # Windowed: load `window` messages centered on `around`
-            center = int(around)
+            center = _safe_int(around, 0, lo=0)
             half = window // 2
             low = max(0, center - half)
             high = center + half
@@ -315,7 +324,6 @@ def session_endpoint():
                 ORDER BY message_index ASC
             """, (session_id, low, high)).fetchall()
 
-            # Check if there are more before/after
             min_idx = conn.execute(
                 "SELECT MIN(message_index) FROM messages WHERE session_id = ?",
                 (session_id,)
@@ -327,7 +335,6 @@ def session_endpoint():
             has_before = low > min_idx
             has_after = high < max_idx
         else:
-            # No around param: load first 30 messages (capped)
             rows = conn.execute("""
                 SELECT role, content, message_index, timestamp
                 FROM messages

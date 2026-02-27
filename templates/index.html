@@ -151,36 +151,6 @@
             padding: 10px 12px; margin: 4px 0; border-radius: 6px;
             font-size: 0.88em; line-height: 1.6; word-break: break-word;
         }
-        .convo-msg-user { background: #0f2a50; border-left: 3px solid #00d9ff; }
-        .convo-msg-assistant { background: #111a30; border-left: 3px solid #8b5cf6; }
-        .convo-msg-tool { background: #0d1520; border-left: 3px solid #333; }
-        .convo-msg .msg-role {
-            font-weight: bold; text-transform: uppercase; font-size: 0.75em;
-            letter-spacing: 0.5px; margin-bottom: 4px;
-        }
-        .convo-msg-user .msg-role { color: #00d9ff; }
-        .convo-msg-assistant .msg-role { color: #a78bfa; }
-        .convo-msg-tool .msg-role { color: #666; }
-        .convo-msg .msg-time { font-size: 0.7em; color: #555; margin-left: 8px; font-weight: normal; }
-        .convo-msg .msg-body { color: #ddd; white-space: pre-wrap; }
-        .convo-msg .msg-body code {
-            background: #0f3460; padding: 1px 5px; border-radius: 3px; font-size: 0.92em; color: #7dd3fc;
-        }
-        .convo-msg .msg-body pre {
-            background: #0a0f1e; padding: 10px 14px; border-radius: 6px; overflow-x: auto;
-            margin: 8px 0; font-size: 0.88em; color: #7dd3fc; line-height: 1.4; white-space: pre-wrap;
-        }
-        .convo-msg .msg-body pre code { background: none; padding: 0; color: inherit; }
-        .convo-msg .msg-body ul { margin: 6px 0 6px 20px; color: #ccc; }
-        .convo-msg .msg-body ul li { margin: 2px 0; }
-        .convo-msg .msg-body strong { color: #fff; }
-        .convo-msg .msg-body h1, .convo-msg .msg-body h2, .convo-msg .msg-body h3 {
-            color: #fff; margin: 8px 0 4px; font-weight: 600;
-        }
-        .convo-msg .msg-body h1 { font-size: 15px; }
-        .convo-msg .msg-body h2 { font-size: 14px; }
-        .convo-msg .msg-body h3 { font-size: 13px; }
-
         .tool-calls-summary {
             display: inline-flex; align-items: center; gap: 6px;
             padding: 4px 12px; background: #0d1520; border: 1px solid #333;
@@ -261,6 +231,15 @@
         .load-more-btn { text-align: center; padding: 8px; color: #00d9ff; font-size: 0.85em; cursor: pointer; border: 1px dashed #444; border-radius: 6px; margin: 6px 0; }
         .load-more-btn:hover { background: rgba(0,217,255,0.08); border-color: #00d9ff; }
         .result-card.expanded { border-color: #00d9ff; }
+
+        /* Mobile */
+        @media (max-width: 768px) {
+            .container { padding: 12px; }
+            .search-btn, input[type="text"] { min-height: 44px; font-size: 16px; }
+            .agent-pill { padding: 8px 14px; font-size: 13px; }
+            .help-grid { grid-template-columns: 1fr; }
+            .options { gap: 10px; }
+        }
     </style>
 </head>
 <body>
@@ -349,6 +328,7 @@
         const TRUNCATE_LEN = 300;
         const MSG_TRUNCATE = 800;
         let expandedCard = null;
+        let expandCardController = null;
         let loadedConvos = {};
 
         // --- Dynamic agent data (populated from /agents on page load) ---
@@ -577,14 +557,15 @@
             const viewer = document.getElementById('cv-' + cardId);
             if (!card || !viewer) return;
 
+            // Collapse if already expanded
             if (expandedCard === cardId) {
-                viewer.innerHTML = '';
                 viewer.style.display = 'none';
                 card.classList.remove('expanded');
                 expandedCard = null;
                 return;
             }
 
+            // Collapse previous card (but keep its cached data)
             if (expandedCard) {
                 const prev = document.getElementById(expandedCard);
                 const prevV = document.getElementById('cv-' + expandedCard);
@@ -592,30 +573,39 @@
                 if (prevV) { prevV.innerHTML = ''; prevV.style.display = 'none'; }
             }
 
+            // Cancel any in-flight expansion fetch
+            if (expandCardController) expandCardController.abort();
+            expandCardController = new AbortController();
+
             expandedCard = cardId;
             card.classList.add('expanded');
             viewer.style.display = 'block';
 
             const msgId = card.dataset.msgId || '';
 
+            // Reuse cached conversation data if available
+            if (loadedConvos[sessionId]) {
+                renderConvo(viewer, loadedConvos[sessionId], sessionId, msgId, lastSearchQuery);
+                return;
+            }
+
             viewer.innerHTML = '<div style="text-align:center;padding:12px;color:#888;">Loading conversation...</div>';
 
             try {
-                // Use /context endpoint to load messages centered on the matched message
                 let url;
                 if (msgId) {
-                    url = '/context?session_id=' + encodeURIComponent(sessionId) + '&message_id=' + msgId + '&radius=15';
+                    url = '/context?session_id=' + encodeURIComponent(sessionId) + '&message_id=' + encodeURIComponent(msgId) + '&radius=15';
                 } else {
                     url = '/session?session_id=' + encodeURIComponent(sessionId) + '&window=30';
                 }
-                const resp = await fetch(url);
-                if (!resp.ok) { viewer.innerHTML = '<div style="color:#f44;">Failed to load</div>'; return; }
+                const resp = await fetch(url, { signal: expandCardController.signal });
+                if (!resp.ok) { viewer.innerHTML = '<div style="color:#f44;">Failed to load (HTTP ' + resp.status + ')</div>'; return; }
                 const data = await resp.json();
-                // Store for loadMore
-                if (!loadedConvos[sessionId]) loadedConvos[sessionId] = {};
+                if (data.error) { viewer.innerHTML = '<div style="color:#f44;">' + escapeHtml(data.error) + '</div>'; return; }
                 loadedConvos[sessionId] = data;
                 renderConvo(viewer, data, sessionId, msgId, lastSearchQuery);
             } catch (e) {
+                if (e.name === 'AbortError') return;
                 viewer.innerHTML = '<div style="color:#f44;">Error: ' + escapeHtml(e.message) + '</div>';
             }
         }

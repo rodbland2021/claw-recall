@@ -18,7 +18,6 @@ Usage:
 """
 
 import re
-
 import argparse
 import sys
 from pathlib import Path
@@ -27,8 +26,49 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 # Add current dir to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from search import search_conversations, SearchResult, OPENAI_AVAILABLE
+from search import search_conversations, SearchResult, deduplicate_results, OPENAI_AVAILABLE
 from search_files import search_files, FileMatch
+
+
+def parse_since(value: str) -> float:
+    """Parse a --since value like '60m', '2h', '3d' into fractional days."""
+    m = re.match(r'^(\d+(?:\.\d+)?)\s*(m|min|mins|minutes?|h|hrs?|hours?|d|days?)$', value.strip().lower())
+    if not m:
+        raise argparse.ArgumentTypeError(
+            f"Invalid --since format: '{value}'. Use e.g. '60m', '2h', '3d'"
+        )
+    num = float(m.group(1))
+    unit = m.group(2)[0]  # first char: m, h, or d
+    if unit == 'm':
+        return num / 1440  # minutes to days
+    elif unit == 'h':
+        return num / 24  # hours to days
+    else:
+        return num
+
+
+def parse_date(value: str) -> 'datetime':
+    """Parse a date string. Accepts: YYYY-MM-DD, YYYY-MM-DD HH:MM, 'today', 'yesterday'.
+    Returns a (datetime, bool) tuple where bool indicates if time was explicitly given."""
+    from datetime import datetime, timedelta
+    v = value.strip().lower()
+    if v == 'today':
+        return datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    if v == 'yesterday':
+        return (datetime.now() - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    # Try with time first
+    try:
+        return datetime.strptime(value.strip(), '%Y-%m-%d %H:%M')
+    except ValueError:
+        pass
+    # Date only
+    try:
+        return datetime.strptime(value.strip(), '%Y-%m-%d')
+    except ValueError:
+        pass
+    raise argparse.ArgumentTypeError(
+        f"Invalid date: '{value}'. Use YYYY-MM-DD, 'YYYY-MM-DD HH:MM', 'today', or 'yesterday'"
+    )
 
 
 def should_use_semantic(query: str) -> bool:
@@ -101,8 +141,10 @@ def unified_search(
     semantic: bool = None,  # None = auto-detect
     files_only: bool = False,
     convos_only: bool = False,
-    days: int = None,
-    limit: int = 10
+    limit: int = 10,
+    days: float = None,
+    date_from = None,
+    date_to = None
 ) -> dict:
     """
     Search both conversations and files in parallel.
@@ -129,26 +171,22 @@ def unified_search(
                 query=query,
                 agent=agent,
                 semantic=use_semantic,
+                limit=limit,
                 days=days,
-                limit=limit
+                date_from=date_from,
+                date_to=date_to
             )
-            # Deduplicate
-            seen = set()
-            convos = []
-            for r in convo_results:
-                fingerprint = f"{r.role}:{r.content[:200]}"
-                if fingerprint not in seen:
-                    seen.add(fingerprint)
-                    convos.append({
-                        "agent": r.agent_id,
-                        "channel": r.channel,
-                        "role": r.role,
-                        "content": r.content[:500],
-                        "fullContent": r.content,  # For deep link extraction
-                        "timestamp": r.timestamp.isoformat() if r.timestamp else None,
-                        "score": round(r.score, 3)
-                    })
-            return convos
+            return [
+                {
+                    "agent": r.agent_id,
+                    "channel": r.channel,
+                    "role": r.role,
+                    "content": r.content[:500],
+                    "timestamp": r.timestamp.isoformat() if r.timestamp else None,
+                    "score": round(r.score, 3)
+                }
+                for r in deduplicate_results(convo_results)
+            ]
         except Exception as e:
             return [{"error": str(e)}]
     
@@ -245,11 +283,16 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-    ./recall.py "what did we discuss about playbooks"   # Auto: semantic
-    ./recall.py "LYFER"                                  # Auto: keyword (short)
-    ./recall.py "act_12345" --keyword                    # Force keyword
-    ./recall.py "B-roll workflow" --agent cyrus
-    ./recall.py "Facebook ads" --files-only
+    claw-recall "what did we discuss about playbooks"   # Auto: semantic
+    claw-recall "LYFER"                                  # Auto: keyword (short)
+    claw-recall "act_12345" --keyword                    # Force keyword
+    claw-recall "B-roll workflow" --agent cyrus
+    claw-recall "Facebook ads" --files-only
+    claw-recall "grok" --since 60m                       # Last 60 minutes
+    claw-recall "Kit" --since 2h --agent main            # Last 2 hours, specific agent
+    claw-recall "floship" --from 2026-02-15 --to 2026-02-17   # Date range
+    claw-recall "order" --from yesterday --agent main          # Since yesterday
+    claw-recall "meeting" --from 2026-02-01 --to today         # Month to date
         """
     )
     parser.add_argument('query', nargs='+', help='Search query')
@@ -262,6 +305,9 @@ Examples:
     
     parser.add_argument('--files-only', '-f', action='store_true', help='Only search files')
     parser.add_argument('--convos-only', '-c', action='store_true', help='Only search conversations')
+    parser.add_argument('--since', type=parse_since, help='Only search recent messages (e.g. 60m, 2h, 3d)')
+    parser.add_argument('--from', dest='date_from', type=parse_date, help='Start date (YYYY-MM-DD, "today", "yesterday")')
+    parser.add_argument('--to', dest='date_to', type=parse_date, help='End date (YYYY-MM-DD, "today", "yesterday")')
     parser.add_argument('--limit', '-n', type=int, default=10, help='Max results per category')
     parser.add_argument('--verbose', '-v', action='store_true', help='Show more context')
     parser.add_argument('--json', '-j', action='store_true', help='Output as JSON')
@@ -281,23 +327,43 @@ Examples:
         auto_result = should_use_semantic(query)
         mode_str = f"{'semantic' if auto_result else 'keyword'} (auto)"
     
+    # If --to is a date-only (midnight), bump to end of day so the full day is included
+    if args.date_to and args.date_to.hour == 0 and args.date_to.minute == 0 and args.date_to.second == 0:
+        args.date_to = args.date_to.replace(hour=23, minute=59, second=59)
+
     print(f"🦞 Claw Recall: '{query}'")
     print(f"   Mode: {mode_str}")
     if args.agent:
         print(f"   Agent: {args.agent}")
+    if args.since:
+        # Convert fractional days back to human-readable for display
+        mins = args.since * 1440
+        if mins < 60:
+            print(f"   Since: last {int(mins)} minutes")
+        elif mins < 1440:
+            print(f"   Since: last {mins/60:.1f} hours")
+        else:
+            print(f"   Since: last {args.since:.1f} days")
+    if args.date_from:
+        print(f"   From: {args.date_from.strftime('%Y-%m-%d %H:%M')}")
+    if args.date_to:
+        print(f"   To: {args.date_to.strftime('%Y-%m-%d %H:%M')}")
     if args.files_only:
         print(f"   Scope: files only")
     elif args.convos_only:
         print(f"   Scope: conversations only")
     else:
         print(f"   Scope: conversations + files")
-    
+
     results = unified_search(
         query=query,
         agent=args.agent,
         semantic=semantic,
         files_only=args.files_only,
         convos_only=args.convos_only,
+        days=args.since,
+        date_from=args.date_from,
+        date_to=args.date_to,
         limit=args.limit
     )
     
