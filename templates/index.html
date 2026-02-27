@@ -371,6 +371,7 @@
 
         // --- Utilities ---
         function escapeHtml(t) { if (!t) return ''; const d = document.createElement('div'); d.textContent = String(t); return d.innerHTML; }
+        function escapeAttr(t) { if (!t) return ''; return String(t).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
         function escapeAttr(t) { if (!t) return ''; return String(t).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
         function cleanNoise(text) {
@@ -489,7 +490,7 @@
                 '<span class="result-date">' + escapeHtml(dateStr) + '</span>' +
                 '<span>' + escapeHtml(timeStr) + '</span>' +
                 '<span class="result-role">' + escapeHtml(r.role || '') + '</span>' +
-                (r.deepLink ? '<a href="' + r.deepLink + '" target="_blank" class="deep-link" onclick="event.stopPropagation()">&#128279;</a>' : '') +
+                (r.deepLink ? '<a href="' + escapeAttr(r.deepLink) + '" target="_blank" class="deep-link" onclick="event.stopPropagation()">&#128279;</a>' : '') +
                 '</div>' +
                 '<div class="result-preview">' + highlightTerms(escapeHtml(preview), query) + '</div>' +
                 '<div class="convo-viewer" id="cv-' + cardId + '"></div>' +
@@ -726,8 +727,10 @@
             }
         }
 
+        let loadMoreBusy = false;
         async function loadMore(direction, sessionId, fromIdx, container) {
-            if (!container) return;
+            if (!container || loadMoreBusy) return;
+            loadMoreBusy = true;
             const around = direction === 'earlier' ? fromIdx - 15 : fromIdx + 15;
             try {
                 const resp = await fetch('/session?session_id=' + encodeURIComponent(sessionId) + '&around=' + around + '&window=30');
@@ -751,6 +754,8 @@
                 }
             } catch (e) {
                 console.error('loadMore error:', e);
+            } finally {
+                loadMoreBusy = false;
             }
         }
 

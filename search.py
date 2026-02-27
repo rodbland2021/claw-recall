@@ -5,6 +5,7 @@ Search past conversations using keywords or semantic similarity.
 """
 
 import sqlite3
+import threading
 import numpy as np
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -29,6 +30,7 @@ _embedding_cache = {
     "count": 0,           # row count when cache was built
     "filters_hash": None, # hash of filter params to invalidate on filter change
 }
+_embedding_lock = threading.Lock()
 
 
 @dataclass
@@ -58,7 +60,10 @@ def keyword_search(
     """Search using FTS5 full-text search."""
 
     # Build FTS query — AND all words so results must contain every term
-    words = [w for w in query.split() if w]
+    # Strip quotes to prevent FTS5 syntax errors from user input
+    words = [w.replace('"', '') for w in query.split() if w.replace('"', '')]
+    if not words:
+        return []
     fts_query = " AND ".join(f'"{word}"' for word in words)
 
     sql = """
@@ -203,20 +208,23 @@ def semantic_search(
         print("⚠️  Semantic search requires OpenAI. Falling back to keyword search.")
         return keyword_search(conn, query, agent, channel, days, limit, date_from=date_from, date_to=date_to)
 
-    # Build/refresh the embedding matrix cache
-    _build_embedding_cache(conn, agent, channel, days, date_from, date_to)
-
-    if _embedding_cache["matrix"] is None or len(_embedding_cache["metadata"]) == 0:
-        return []
-
-    # Generate query embedding
+    # Generate query embedding (outside lock — network I/O)
     response = openai_client.embeddings.create(model=EMBEDDING_MODEL, input=[query])
     q_emb = np.array(response.data[0].embedding, dtype=np.float32)
     q_norm = np.linalg.norm(q_emb)
 
-    # Vectorized cosine similarity: dot(matrix, query) / (norms * q_norm)
-    matrix = _embedding_cache["matrix"]
-    norms = _embedding_cache["norms"]
+    with _embedding_lock:
+        # Build/refresh the embedding matrix cache
+        _build_embedding_cache(conn, agent, channel, days, date_from, date_to)
+
+        if _embedding_cache["matrix"] is None or len(_embedding_cache["metadata"]) == 0:
+            return []
+
+        # Vectorized cosine similarity: dot(matrix, query) / (norms * q_norm)
+        matrix = _embedding_cache["matrix"]
+        norms = _embedding_cache["norms"]
+        metadata = _embedding_cache["metadata"]
+
     similarities = matrix @ q_emb / (norms * q_norm + 1e-10)
 
     # Get top candidates (more than limit for dedup headroom)
@@ -232,7 +240,7 @@ def semantic_search(
         sim = float(similarities[idx])
         if sim < MIN_SIMILARITY:
             break
-        meta = _embedding_cache["metadata"][idx]
+        meta = metadata[idx]
         # meta: (id, session_id, agent_id, channel, role, content, timestamp)
         fingerprint = f"{meta[4]}:{meta[5][:200]}"
         if fingerprint in seen:
