@@ -467,8 +467,9 @@ def index_directory(
         'total_embeddings': 0
     }
     
-    # Find all .jsonl files
-    session_files = list(source_dir.glob("**/*.jsonl"))
+    # Find all .jsonl files (skip subagent sessions — they're fragments with hex IDs)
+    session_files = [f for f in source_dir.glob("**/*.jsonl")
+                     if '/subagents/' not in str(f)]
     print(f"Found {len(session_files)} session files")
     
     for filepath in session_files:

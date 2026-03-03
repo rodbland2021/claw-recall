@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from recall import unified_search
-from search import DB_PATH, cache_status
+from search import DB_PATH, cache_status, preload_embedding_cache
 import re
 
 
@@ -42,11 +42,6 @@ def _safe_int(value, default, lo=None, hi=None):
     if hi is not None:
         n = min(hi, n)
     return n
-
-
-def _escape_like(s: str) -> str:
-    """Escape LIKE wildcards so % and _ in content are matched literally."""
-    return s.replace('%', '\\%').replace('_', '\\_')
 
 
 def generate_deep_link(content: str) -> str | None:
@@ -146,43 +141,12 @@ def search_endpoint():
     except Exception as e:
         return jsonify({"error": f"Search failed: {e}", "conversations": [], "files": [], "summary": ""}), 500
 
-    # Post-process conversation results: add deep links, session_id, message_id
+    # Post-process conversation results: add deep links
     for convo in results.get("conversations", []):
         full_content = convo.pop("fullContent", convo.get("content", ""))
         convo["deepLink"] = generate_deep_link(full_content)
 
-        # Resolve session_id and message_id for context expansion
-        if "session_id" not in convo:
-            _enrich_convo_with_session(convo)
-
     return jsonify(results)
-
-
-def _enrich_convo_with_session(convo: dict):
-    """Look up session_id and message id for a conversation result, for context expansion."""
-    content_prefix = (convo.get("content") or "")[:200]
-    if not content_prefix:
-        return
-    try:
-        conn = _get_db()
-        try:
-            escaped = _escape_like(content_prefix)
-            cursor = conn.execute("""
-                SELECT m.id, m.session_id, m.message_index
-                FROM messages m
-                JOIN sessions s ON m.session_id = s.id
-                WHERE m.content LIKE ? ESCAPE '\\' AND m.role = ?
-                LIMIT 1
-            """, (escaped + '%', convo.get("role", "")))
-
-            row = cursor.fetchone()
-            if row:
-                convo["message_id"] = row[0]
-                convo["session_id"] = row[1]
-        finally:
-            conn.close()
-    except Exception as e:
-        print(f"[recall-web] enrich error: {e}")
 
 
 @app.route('/context')
@@ -425,4 +389,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     print(f"Recall Web Interface running at http://localhost:{args.port}")
+    # Preload embedding cache in background to avoid cold-start latency
+    preload_embedding_cache()
     app.run(host=args.host, port=args.port, debug=False)

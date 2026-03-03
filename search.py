@@ -27,7 +27,7 @@ EMBEDDING_MODEL = "text-embedding-3-small"
 # Cached embedding matrix for vectorized semantic search
 # IMPORTANT: metadata stores only IDs (not content) to avoid multi-GB memory.
 # Content is looked up from DB only for top-K results after scoring.
-_CACHE_TTL_SECONDS = 1800  # 30 minutes — clear cache after inactivity
+_CACHE_TTL_SECONDS = 14400  # 4 hours — clear cache after extended inactivity
 _embedding_cache = {
     "matrix": None,       # np.ndarray of shape (N, dim)
     "msg_ids": None,      # np.ndarray of message IDs (for content lookup after scoring)
@@ -98,6 +98,7 @@ class SearchResult:
     content: str
     timestamp: Optional[datetime]
     score: float
+    message_id: int = None
     context_before: List[str] = None
     context_after: List[str] = None
 
@@ -173,9 +174,10 @@ def keyword_search(
             role=row[2],
             content=row[3],
             timestamp=datetime.fromisoformat(row[4]) if row[4] else None,
-            score=row[7]
+            score=row[7],
+            message_id=row[0],
         ))
-    
+
     return results
 
 
@@ -387,6 +389,7 @@ def semantic_search(
             content=content,
             timestamp=datetime.fromisoformat(meta[5]) if meta[5] else None,
             score=sim,
+            message_id=msg_id,
         ))
         if len(results) >= limit:
             break
@@ -476,6 +479,31 @@ def search_conversations(
 
     conn.close()
     return results
+
+
+def preload_embedding_cache():
+    """Preload the embedding cache in a background thread.
+
+    Call this on service start to eliminate cold-start latency on first
+    semantic search. Loads the full matrix (~2.3GB) without any filters.
+    """
+    def _preload():
+        try:
+            conn = sqlite3.connect(str(DB_PATH))
+            conn.execute("PRAGMA journal_mode=WAL")
+            with _embedding_lock:
+                _build_embedding_cache(conn)
+            conn.close()
+            rows = _embedding_cache.get("matrix")
+            if rows is not None:
+                print(f"[search] Embedding cache preloaded: {rows.shape[0]} embeddings")
+            else:
+                print("[search] Embedding cache preload: no embeddings found")
+        except Exception as e:
+            print(f"[search] Embedding cache preload failed: {e}")
+
+    t = threading.Thread(target=_preload, daemon=True, name="embedding-preload")
+    t.start()
 
 
 if __name__ == "__main__":
