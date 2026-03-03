@@ -283,7 +283,7 @@
         .show-more-btn:hover { background: rgba(96,165,250,0.08); border-color: var(--accent-blue); }
 
         .convo-viewer { display: none; margin-top: var(--space-sm); border-top: 1px solid var(--border-card); }
-        .convo-thread { padding: var(--space-sm) 0; max-height: 500px; overflow-y: auto; }
+        .convo-thread { padding: var(--space-sm) 0; max-height: 70vh; overflow-y: auto; }
         .convo-msg { padding: var(--space-sm) 12px; margin: var(--space-xs) 0; border-radius: var(--radius-base); }
         .convo-user { background: rgba(96,165,250,0.06); border-left: 3px solid var(--accent-blue); }
         .convo-assistant { background: rgba(74,222,128,0.05); border-left: 3px solid var(--color-success); }
@@ -383,7 +383,7 @@
                 </div>
                 <div class="help-card">
                     <h3>Semantic Search</h3>
-                    <p>Understands meaning. Enable the checkbox!</p>
+                    <p>Understands meaning. Auto-detected for questions and longer queries.</p>
                     <div class="examples">
                         <code>what did we decide about the website</code>
                         <code>how to handle customer requests</code>
@@ -420,6 +420,64 @@
         let expandedCard = null;
         let expandCardController = null;
         let loadedConvos = {};
+
+        // --- Auto-semantic detection (ported from CLI) ---
+        function shouldUseSemantic(query) {
+            const q = (query || '').trim().toLowerCase();
+            const words = q.split(/\s+/).filter(w => w.length > 0);
+            // Quoted exact phrase → keyword
+            if (query.startsWith('"') && query.endsWith('"')) return false;
+            // IDs, version numbers, long numbers → keyword
+            if (/act_\d+|\d{10,}|UC[a-zA-Z0-9_-]+|[a-f0-9]{24,}|\d+\.\d+\.\d+/.test(query)) return false;
+            // File paths → keyword
+            if (q.includes('/') || q.endsWith('.md') || q.endsWith('.py') || q.endsWith('.js')) return false;
+            // Short queries (1-2 words) → keyword unless question words
+            if (words.length <= 2) {
+                const questionWords = new Set(['what','how','why','when','where','who','which']);
+                if (!words.some(w => questionWords.has(w))) return false;
+            }
+            // Question patterns → semantic
+            if (/^(what|how|why|when|where|who|which)\b/.test(q)) return true;
+            if (/\?$/.test(q)) return true;
+            if (/(did we|have we|was there|were there|discuss|talk|mention|say about)/.test(q)) return true;
+            // 4+ words → semantic
+            if (words.length >= 4) return true;
+            return false;
+        }
+
+        // --- URL state management ---
+        function pushSearchState(query, agent, semantic, days) {
+            const params = new URLSearchParams();
+            if (query) params.set('q', query);
+            if (agent) params.set('agent', agent);
+            if (semantic) params.set('semantic', '1');
+            if (days && days !== '14') params.set('days', days);
+            const newUrl = params.toString() ? '?' + params.toString() : '/';
+            if (window.location.search !== '?' + params.toString()) {
+                history.pushState(null, '', newUrl);
+            }
+        }
+
+        function restoreFromUrl() {
+            const params = new URLSearchParams(window.location.search);
+            const q = params.get('q');
+            const agent = params.get('agent');
+            const semantic = params.get('semantic');
+            const days = params.get('days');
+            if (q) document.getElementById('query').value = q;
+            if (agent) document.getElementById('agent').value = agent;
+            if (semantic === '1') document.getElementById('semantic').checked = true;
+            if (days) document.getElementById('dateRange').value = days;
+            return !!q;
+        }
+
+        window.addEventListener('popstate', () => {
+            if (restoreFromUrl()) { doSearch(); } else {
+                document.getElementById('query').value = '';
+                document.getElementById('results').innerHTML = '';
+                document.getElementById('helpSection').style.display = '';
+            }
+        });
 
         // --- Dynamic agent data (populated from /agents on page load) ---
         // Display name overrides for known agents
@@ -498,19 +556,45 @@
         }
 
         // --- Event listeners ---
+        let _semanticManuallySet = false; // Track if user explicitly toggled semantic checkbox
         const queryInput = document.getElementById('query');
         queryInput.addEventListener('input', () => {
             clearTimeout(debounceTimer);
+            _semanticManuallySet = false; // Reset on new typing
             debounceTimer = setTimeout(() => { if (queryInput.value.trim().length >= 2 && !document.getElementById('semantic').checked) doSearch(); }, DEBOUNCE_MS);
         });
         queryInput.addEventListener('keypress', e => { if (e.key === 'Enter') { clearTimeout(debounceTimer); doSearch(); } });
         document.getElementById('agent').addEventListener('change', () => { if (queryInput.value.trim().length >= 2) doSearch(); });
-        ['semantic', 'filesOnly', 'convosOnly'].forEach(id => {
+        ['filesOnly', 'convosOnly'].forEach(id => {
             document.getElementById(id).addEventListener('change', () => { if (queryInput.value.trim().length >= 2) doSearch(); });
         });
-        // Show hint when semantic is toggled
+        // Manual semantic toggle — mark as explicitly set
         document.getElementById('semantic').addEventListener('change', function() {
+            _semanticManuallySet = true;
             document.getElementById('semanticHint').style.display = this.checked ? 'inline' : 'none';
+            if (queryInput.value.trim().length >= 2) doSearch();
+        });
+
+        // --- Keyboard shortcuts ---
+        document.addEventListener('keydown', e => {
+            // Ctrl+K or Cmd+K → focus search
+            if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+                e.preventDefault();
+                queryInput.focus();
+                queryInput.select();
+            }
+            // Escape → close expanded card or blur search
+            if (e.key === 'Escape') {
+                if (expandedCard) {
+                    const card = document.getElementById(expandedCard);
+                    const viewer = document.getElementById('cv-' + expandedCard);
+                    if (card) card.classList.remove('expanded');
+                    if (viewer) { viewer.style.display = 'none'; viewer.innerHTML = ''; }
+                    expandedCard = null;
+                } else {
+                    queryInput.blur();
+                }
+            }
         });
 
         // --- Search ---
@@ -524,21 +608,40 @@
             document.getElementById('helpSection').style.display = 'none';
             // Deactivate pills during search
             document.querySelectorAll('.agent-pill').forEach(p => p.classList.remove('active'));
+
+            // Auto-detect semantic mode (unless user explicitly toggled)
+            if (!_semanticManuallySet) {
+                const autoSemantic = shouldUseSemantic(query);
+                document.getElementById('semantic').checked = autoSemantic;
+            }
+
             try {
                 const isSemantic = document.getElementById('semantic').checked;
+                const agentVal = document.getElementById('agent').value || '';
+                const daysVal = document.getElementById('dateRange').value;
+
+                // Push URL state for bookmarkability
+                pushSearchState(query, agentVal, isSemantic, daysVal);
+
                 // Strip quotes for semantic search — they don't help embedding models
                 const searchQuery = isSemantic ? query.replace(/^["']|["']$/g, '') : query;
                 const params = new URLSearchParams({
                     q: searchQuery,
                     semantic: String(isSemantic),
-                    days: document.getElementById('dateRange').value,
-                    agent: document.getElementById('agent').value || '',
+                    days: daysVal,
+                    agent: agentVal,
                     files_only: String(document.getElementById('filesOnly').checked),
                     convos_only: String(document.getElementById('convosOnly').checked)
                 });
                 const resp = await fetch('/search?' + params, { signal: abortController.signal });
                 if (!resp.ok) throw new Error('HTTP ' + resp.status);
                 const data = await resp.json();
+                if (data.error) {
+                    if (mySearchId === searchId) {
+                        document.getElementById('results').innerHTML = '<div class="empty" style="color:var(--color-danger);">Search error: ' + escapeHtml(data.error) + '</div>';
+                    }
+                    return;
+                }
                 // Only render if this is still the latest search
                 if (mySearchId === searchId) {
                     renderResults(data, query);
@@ -546,7 +649,7 @@
             } catch (err) {
                 if (err.name === 'AbortError') return;
                 if (mySearchId === searchId) {
-                    document.getElementById('results').innerHTML = '<div class="empty">Error: ' + escapeHtml(err.message) + '</div>';
+                    document.getElementById('results').innerHTML = '<div class="empty" style="color:var(--color-danger);">Error: ' + escapeHtml(err.message) + '</div>';
                 }
             } finally {
                 // Only hide spinner if this is still the latest search
@@ -956,9 +1059,12 @@
             })();
         }
 
-        // --- Page initialization: fetch agents, build pills + dropdown ---
+        // --- Page initialization: fetch agents, build pills + dropdown, restore URL state ---
         (async function initAgents() {
             try {
+                // Restore URL state before fetching agents (so days param is correct)
+                const hasUrlQuery = restoreFromUrl();
+
                 const days = document.getElementById('dateRange').value;
                 const resp = await fetch('/agents?days=' + days);
                 if (!resp.ok) return;
@@ -977,8 +1083,18 @@
                     select.appendChild(opt);
                 }
 
+                // Re-restore agent value after options are populated
+                const urlAgent = new URLSearchParams(window.location.search).get('agent');
+                if (urlAgent) document.getElementById('agent').value = urlAgent;
+
                 // Render pills
                 renderPills();
+
+                // If URL had a query, run the search
+                if (hasUrlQuery) {
+                    _semanticManuallySet = !!new URLSearchParams(window.location.search).get('semantic');
+                    doSearch();
+                }
             } catch (e) {
                 console.error('Failed to load agents:', e);
             }
