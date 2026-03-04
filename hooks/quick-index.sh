@@ -41,6 +41,9 @@ index_dir ~/.openclaw/agents-grok-sessions/ "Grok sessions"
 # Chat sessions
 index_dir ~/.openclaw/agents-chat-sessions/ "Chat sessions"
 
+# Claude Code VPS sessions (CC-VPS terminal agent)
+index_dir ~/.claude/projects/ "CC-VPS sessions" "--include-active"
+
 if [ "$TOTAL_INDEXED" -gt 0 ] || [ "$TOTAL_ERRORS" -gt 0 ]; then
     log "Done: indexed=$TOTAL_INDEXED errors=$TOTAL_ERRORS"
 else

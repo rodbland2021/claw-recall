@@ -266,9 +266,13 @@ def _build_embedding_cache(conn: sqlite3.Connection, agent=None, channel=None,
         if i >= n_rows:
             break  # safety: cursor returned more rows than COUNT predicted
         # row: (m.id, m.session_id, s.agent_id, s.channel, m.role, m.timestamp, e.embedding)
+        try:
+            matrix[i] = np.frombuffer(row[6], dtype=np.float32)
+        except Exception as e:
+            print(f"[search] Skipping corrupted embedding for msg {row[0]}: {e}")
+            continue
         msg_ids[i] = row[0]
         metadata.append(row[:6])  # everything except embedding blob
-        matrix[i] = np.frombuffer(row[6], dtype=np.float32)
         i += 1
 
     # Trim if cursor returned fewer rows than COUNT (shouldn't happen, but be safe)
@@ -397,29 +401,6 @@ def semantic_search(
     return results
 
 
-def get_context(
-    conn: sqlite3.Connection,
-    session_id: str,
-    message_index: int,
-    context_size: int = 2
-) -> tuple[List[str], List[str]]:
-    """Get surrounding messages for context."""
-    
-    cursor = conn.execute("""
-        SELECT role, content FROM messages 
-        WHERE session_id = ? AND message_index < ?
-        ORDER BY message_index DESC LIMIT ?
-    """, (session_id, message_index, context_size))
-    before = [f"[{r[0]}] {r[1][:200]}" for r in reversed(cursor.fetchall())]
-    
-    cursor = conn.execute("""
-        SELECT role, content FROM messages 
-        WHERE session_id = ? AND message_index > ?
-        ORDER BY message_index ASC LIMIT ?
-    """, (session_id, message_index, context_size))
-    after = [f"[{r[0]}] {r[1][:200]}" for r in cursor.fetchall()]
-    
-    return before, after
 
 
 def deduplicate_results(results: List[SearchResult]) -> List[SearchResult]:
@@ -493,8 +474,8 @@ def preload_embedding_cache():
             conn.execute("PRAGMA journal_mode=WAL")
             with _embedding_lock:
                 _build_embedding_cache(conn)
+                rows = _embedding_cache.get("matrix")
             conn.close()
-            rows = _embedding_cache.get("matrix")
             if rows is not None:
                 print(f"[search] Embedding cache preloaded: {rows.shape[0]} embeddings")
             else:
