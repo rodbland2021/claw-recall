@@ -472,6 +472,8 @@
             if (agent) params.set('agent', agent);
             if (semantic) params.set('semantic', '1');
             if (days && days !== '14') params.set('days', days);
+            const sv = document.getElementById('sourceFilter').value;
+            if (sv) params.set('source', sv);
             const newUrl = params.toString() ? '?' + params.toString() : '/';
             if (window.location.search !== '?' + params.toString()) {
                 history.pushState(null, '', newUrl);
@@ -484,10 +486,12 @@
             const agent = params.get('agent');
             const semantic = params.get('semantic');
             const days = params.get('days');
+            const source = params.get('source');
             if (q) document.getElementById('query').value = q;
             if (agent) document.getElementById('agent').value = agent;
             if (semantic === '1') document.getElementById('semantic').checked = true;
             if (days) document.getElementById('dateRange').value = days;
+            if (source) document.getElementById('sourceFilter').value = source;
             return !!q;
         }
 
