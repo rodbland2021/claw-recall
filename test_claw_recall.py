@@ -570,6 +570,12 @@ class TestCaptureSources:
         # Need to mock before importing capture_sources
         mock_module = MagicMock()
         mock_module.list_inbox.return_value = mock_emails
+        # get_email must return dicts with from/subject/body (used for full_body fetch)
+        mock_module.get_email.side_effect = lambda acct, msg_id: {
+            'from': next((e['from'] for e in mock_emails if e['id'] == msg_id), 'Unknown'),
+            'subject': next((e['subject'] for e in mock_emails if e['id'] == msg_id), 'No subject'),
+            'body': next((e['snippet'] for e in mock_emails if e['id'] == msg_id), ''),
+        }
         sys.modules['email_helper'] = mock_module
 
         # Also mock OpenAI for batch embedding

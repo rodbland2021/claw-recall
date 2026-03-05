@@ -43,7 +43,8 @@ log = logging.getLogger("capture_sources")
 GMAIL_POLL_LIMIT = 50
 DRIVE_POLL_LIMIT = 30
 # Max body length to capture (avoid bloating DB)
-MAX_BODY_LENGTH = 1500
+# 4000 chars ≈ 1000 tokens — enough for strategic docs while staying compact
+MAX_BODY_LENGTH = 4000
 
 # ─── Gmail Noise Filter ─────────────────────────────────────────────────────
 # Sender patterns that indicate automated/marketing/noise emails.
@@ -294,15 +295,14 @@ def poll_gmail(account: str = None, limit: int = GMAIL_POLL_LIMIT,
                     date = email_meta.get('date', '')
                     snippet = email_meta.get('snippet', '')
 
-                    # Filter noise
-                    if filter_noise and _is_gmail_noise(sender, subject):
-                        stats["filtered"] += 1
-                        log.debug(f"  Filtered: {sender[:40]} — {subject[:50]}")
-                        continue
-
+                    # If full_body, fetch real metadata before filtering
+                    # (list_inbox returns from='Unknown'/subject='No subject'
+                    # for sent mail — get_email returns correct values)
                     if full_body:
                         try:
                             full = get_email(acct, msg_id)
+                            sender = full.get('from', sender)
+                            subject = full.get('subject', subject)
                             body = full.get('body', '')
                             if body:
                                 body = _strip_html(body)[:MAX_BODY_LENGTH]
@@ -313,6 +313,12 @@ def poll_gmail(account: str = None, limit: int = GMAIL_POLL_LIMIT,
                             body = snippet
                     else:
                         body = snippet
+
+                    # Filter noise (now with correct metadata if full_body was used)
+                    if filter_noise and _is_gmail_noise(sender, subject):
+                        stats["filtered"] += 1
+                        log.debug(f"  Filtered: {sender[:40]} — {subject[:50]}")
+                        continue
 
                     content = f"Email from {sender}: {subject}\n{body}"
 
@@ -463,6 +469,29 @@ def poll_drive(account: str = None, limit: int = DRIVE_POLL_LIMIT,
                         body = f"(Google Spreadsheet — {name})"
                     elif mime == 'application/vnd.google-apps.presentation':
                         body = f"(Google Slides — {name})"
+                    elif mime == 'application/pdf':
+                        try:
+                            import io
+                            from googleapiclient.http import MediaIoBaseDownload
+                            req = drive_svc.files().get_media(fileId=file_id)
+                            buf = io.BytesIO()
+                            downloader = MediaIoBaseDownload(buf, req)
+                            done = False
+                            while not done:
+                                _, done = downloader.next_chunk()
+                            buf.seek(0)
+                            try:
+                                from pypdf import PdfReader
+                                reader = PdfReader(buf)
+                                text_parts = []
+                                for page in reader.pages[:20]:  # Max 20 pages
+                                    text_parts.append(page.extract_text() or '')
+                                body = '\n'.join(text_parts)[:MAX_BODY_LENGTH]
+                            except Exception as e:
+                                log.warning(f"PDF text extraction failed for {file_id}: {e}")
+                                body = f"(PDF file — {name}, extraction failed)"
+                        except Exception as e:
+                            log.warning(f"Failed to download PDF {file_id}: {e}")
                     elif mime in CONTENT_EXTRACTABLE_MIMES:
                         try:
                             import io
@@ -965,6 +994,29 @@ def backfill_drive(account: str = None, days: int = None,
                             body = f"(Google Spreadsheet — {name})"
                         elif mime == 'application/vnd.google-apps.presentation':
                             body = f"(Google Slides — {name})"
+                        elif mime == 'application/pdf':
+                            try:
+                                import io
+                                from googleapiclient.http import MediaIoBaseDownload
+                                req = drive_svc.files().get_media(fileId=file_id)
+                                buf = io.BytesIO()
+                                downloader = MediaIoBaseDownload(buf, req)
+                                done = False
+                                while not done:
+                                    _, done = downloader.next_chunk()
+                                buf.seek(0)
+                                try:
+                                    from pypdf import PdfReader
+                                    reader = PdfReader(buf)
+                                    text_parts = []
+                                    for page in reader.pages[:20]:  # Max 20 pages
+                                        text_parts.append(page.extract_text() or '')
+                                    body = '\n'.join(text_parts)[:MAX_BODY_LENGTH]
+                                except Exception as e:
+                                    log.warning(f"PDF text extraction failed for {file_id}: {e}")
+                                    body = f"(PDF file — {name}, extraction failed)"
+                            except Exception as e:
+                                log.warning(f"Failed to download PDF {file_id}: {e}")
                         elif mime in CONTENT_EXTRACTABLE_MIMES:
                             try:
                                 import io
