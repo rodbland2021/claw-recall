@@ -615,9 +615,9 @@ class TestCaptureSources:
                     'modifiedTime': '2026-03-05T10:00:00.000Z',
                 },
                 {
-                    'id': 'img001',
-                    'name': 'Photo.jpg',
-                    'mimeType': 'image/jpeg',
+                    'id': 'pdf001',
+                    'name': 'Report.pdf',
+                    'mimeType': 'application/pdf',
                     'size': '1048576',
                     'modifiedTime': '2026-03-05T09:00:00.000Z',
                 },
