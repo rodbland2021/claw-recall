@@ -396,8 +396,12 @@ def main():
             stats["pushed"] += 1
             update_state(state, filepath)
             save_state(state)
-            log.info(f"Indexed: {filepath.name} ({result.get('messages', 0)} msgs, "
-                     f"agent={result.get('agent', '?')})")
+            if result.get('incremental'):
+                log.info(f"Indexed: {filepath.name} (+{result.get('messages', 0)} new, "
+                         f"total={result.get('total_messages', '?')}, agent={result.get('agent', '?')})")
+            else:
+                log.info(f"Indexed: {filepath.name} ({result.get('messages', 0)} msgs, "
+                         f"agent={result.get('agent', '?')})")
         elif status == "skipped":
             stats["skipped"] += 1
             update_state(state, filepath)  # Mark as seen even if skipped

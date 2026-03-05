@@ -75,7 +75,7 @@ CREATE TABLE IF NOT EXISTS embeddings (
 
 CREATE INDEX IF NOT EXISTS idx_embeddings_message ON embeddings(message_id);
 
--- Index tracking to avoid re-indexing
+-- Index tracking to avoid re-indexing (supports incremental indexing via last_byte_offset)
 CREATE TABLE IF NOT EXISTS index_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     source_file TEXT UNIQUE NOT NULL,
@@ -83,6 +83,7 @@ CREATE TABLE IF NOT EXISTS index_log (
     file_mtime DATETIME,
     indexed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     message_count INTEGER,
+    last_byte_offset INTEGER DEFAULT 0,
     status TEXT DEFAULT 'complete'
 );
 

@@ -285,67 +285,99 @@ def _try_timestamp_from_content(content: str) -> Optional[datetime]:
     return None
 
 
-def extract_messages(filepath: Path) -> list[dict]:
-    """Extract all messages from a session file (OpenClaw, Claude Code, or legacy format)."""
+def extract_messages(filepath: Path, start_offset: int = 0, start_index: int = 0):
+    """Extract messages from a session file (OpenClaw, Claude Code, or legacy format).
+
+    Args:
+        start_offset: Byte offset to start reading from (for incremental indexing).
+        start_index: Starting message_index for new messages.
+
+    Returns:
+        (messages, first_timestamp, last_timestamp, end_byte_offset)
+    """
     messages = []
     first_timestamp = None
     last_timestamp = None
+    end_offset = start_offset
 
-    for entry in parse_session_file(filepath):
-        entry_type = entry.get('type')
-        role = None
-        raw_content = None
-        is_cc = False
+    # Use binary mode so f.tell() returns reliable byte offsets
+    with open(filepath, 'rb') as f:
+        if start_offset > 0:
+            f.seek(start_offset)
 
-        if entry_type == 'message':
-            # OpenClaw: {"type": "message", "message": {...}}
-            msg = entry.get('message', {})
-            role = msg.get('role')
-            raw_content = msg.get('content', '')
-        elif entry_type in ('user', 'assistant') and 'message' in entry:
-            # Claude Code: {"type": "user"/"assistant", "message": {"role": ..., "content": ...}}
-            msg = entry.get('message', {})
-            role = msg.get('role', entry_type)
-            raw_content = msg.get('content', '')
-            is_cc = True
-        elif 'role' in entry and 'content' in entry and entry_type is None:
-            # Legacy: {"role": "user", "content": "..."}
-            role = entry.get('role')
-            raw_content = entry.get('content', '')
-        else:
-            continue
+        while True:
+            raw_line = f.readline()
+            if not raw_line:
+                break  # EOF
+            if not raw_line.endswith(b'\n'):
+                break  # Partial line at EOF — skip, will be picked up next time
+            end_offset = f.tell()
 
-        if role in TOOL_RESULT_ROLES:
-            continue
-
-        content = _extract_text(raw_content)
-        if not content or not content.strip():
-            continue
-        content = content.strip()
-
-        # Strip CC system tags
-        if is_cc:
-            content = CC_SYSTEM_TAG_RE.sub('', content).strip()
-            if not content:
+            try:
+                line = raw_line.decode('utf-8', errors='replace').strip()
+            except Exception:
+                continue
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
                 continue
 
-        timestamp = _parse_timestamp(entry)
-        if timestamp is None:
-            timestamp = _try_timestamp_from_content(content)
+            entry_type = entry.get('type')
+            role = None
+            raw_content = None
+            is_cc = False
 
-        messages.append({
-            'role': role,
-            'content': content,
-            'timestamp': timestamp,
-            'message_index': len(messages)
-        })
+            if entry_type == 'message':
+                # OpenClaw: {"type": "message", "message": {...}}
+                msg = entry.get('message', {})
+                role = msg.get('role')
+                raw_content = msg.get('content', '')
+            elif entry_type in ('user', 'assistant') and 'message' in entry:
+                # Claude Code: {"type": "user"/"assistant", "message": {"role": ..., "content": ...}}
+                msg = entry.get('message', {})
+                role = msg.get('role', entry_type)
+                raw_content = msg.get('content', '')
+                is_cc = True
+            elif 'role' in entry and 'content' in entry and entry_type is None:
+                # Legacy: {"role": "user", "content": "..."}
+                role = entry.get('role')
+                raw_content = entry.get('content', '')
+            else:
+                continue
 
-        if timestamp:
-            if first_timestamp is None:
-                first_timestamp = timestamp
-            last_timestamp = timestamp
+            if role in TOOL_RESULT_ROLES:
+                continue
 
-    return messages, first_timestamp, last_timestamp
+            content = _extract_text(raw_content)
+            if not content or not content.strip():
+                continue
+            content = content.strip()
+
+            # Strip CC system tags
+            if is_cc:
+                content = CC_SYSTEM_TAG_RE.sub('', content).strip()
+                if not content:
+                    continue
+
+            timestamp = _parse_timestamp(entry)
+            if timestamp is None:
+                timestamp = _try_timestamp_from_content(content)
+
+            messages.append({
+                'role': role,
+                'content': content,
+                'timestamp': timestamp,
+                'message_index': start_index + len(messages)
+            })
+
+            if timestamp:
+                if first_timestamp is None:
+                    first_timestamp = timestamp
+                last_timestamp = timestamp
+
+    return messages, first_timestamp, last_timestamp, end_offset
 
 
 def generate_embeddings(texts: list[str], client: Optional['OpenAI'] = None) -> list[np.ndarray]:
@@ -370,6 +402,22 @@ def generate_embeddings(texts: list[str], client: Optional['OpenAI'] = None) -> 
     return embeddings
 
 
+_schema_migrated = False
+
+
+def _ensure_incremental_schema(conn):
+    """One-time migration: add last_byte_offset column for incremental indexing."""
+    global _schema_migrated
+    if _schema_migrated:
+        return
+    try:
+        conn.execute("SELECT last_byte_offset FROM index_log LIMIT 0")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE index_log ADD COLUMN last_byte_offset INTEGER DEFAULT 0")
+        conn.commit()
+    _schema_migrated = True
+
+
 def index_session_file(
     filepath: Path,
     conn: sqlite3.Connection,
@@ -379,46 +427,107 @@ def index_session_file(
 ) -> dict:
     """Index a single session file into the database.
 
+    Supports incremental indexing: if a file has grown since last index,
+    only new lines are parsed and inserted (no DELETE + full re-insert).
+
     Args:
         source_file_override: If provided, use this path for de-duplication
             in index_log and sessions instead of the local filepath.
             Used by the /index-session endpoint for remote files.
     """
+    _ensure_incremental_schema(conn)
     canonical_source = source_file_override or str(filepath)
+    current_size = filepath.stat().st_size
 
-    # Check if already indexed — re-index if file has changed (active sessions grow)
+    # Check if already indexed
     cursor = conn.execute(
-        "SELECT id, file_size FROM index_log WHERE source_file = ?",
+        "SELECT id, file_size, message_count, last_byte_offset FROM index_log WHERE source_file = ?",
         (canonical_source,)
     )
     existing = cursor.fetchone()
+
     if existing:
-        current_size = filepath.stat().st_size
-        if existing[1] == current_size:
+        old_id, old_size, old_msg_count, old_offset = existing
+        old_msg_count = old_msg_count or 0
+        old_offset = old_offset or 0
+
+        if old_size == current_size:
             return {'status': 'skipped', 'reason': 'already indexed'}
-        # File has grown — delete old data and re-index
+
         session_id = filepath.stem
+
+        # File grew AND we have a valid offset → incremental indexing
+        if current_size > old_size and old_offset > 0:
+            metadata_path = Path(source_file_override) if source_file_override else filepath
+            metadata = extract_session_metadata(metadata_path)
+
+            new_messages, _, last_ts, end_offset = extract_messages(
+                filepath, start_offset=old_offset, start_index=old_msg_count
+            )
+
+            if not new_messages:
+                # File grew but no new parseable messages (whitespace, system lines, partial writes)
+                conn.execute(
+                    "UPDATE index_log SET file_size = ?, last_byte_offset = ? WHERE id = ?",
+                    (current_size, end_offset, old_id)
+                )
+                conn.commit()
+                return {'status': 'skipped', 'reason': 'no new messages'}
+
+            # INSERT only new messages
+            for msg in new_messages:
+                conn.execute("""
+                    INSERT INTO messages (session_id, role, content, timestamp, message_index)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (session_id, msg['role'], msg['content'], msg['timestamp'], msg['message_index']))
+
+            total_messages = old_msg_count + len(new_messages)
+
+            # UPDATE session metadata
+            conn.execute(
+                "UPDATE sessions SET ended_at = ?, message_count = ? WHERE id = ?",
+                (last_ts, total_messages, session_id)
+            )
+
+            # UPDATE index_log
+            stat = filepath.stat()
+            conn.execute("""
+                UPDATE index_log SET file_size = ?, file_mtime = ?, message_count = ?, last_byte_offset = ?
+                WHERE id = ?
+            """, (stat.st_size, datetime.fromtimestamp(stat.st_mtime), total_messages, end_offset, old_id))
+
+            conn.commit()
+
+            return {
+                'status': 'indexed',
+                'session_id': session_id,
+                'agent': metadata['agent_id'],
+                'messages': len(new_messages),
+                'total_messages': total_messages,
+                'incremental': True,
+                'embeddings': 0
+            }
+
+        # File shrunk or no stored offset → full re-index (delete old data, fall through)
         conn.execute("DELETE FROM embeddings WHERE message_id IN (SELECT id FROM messages WHERE session_id = ?)", (session_id,))
         conn.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
         conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
-        conn.execute("DELETE FROM index_log WHERE id = ?", (existing[0],))
-    
-    # Extract metadata — use original source path for agent detection when available
+        conn.execute("DELETE FROM index_log WHERE id = ?", (old_id,))
+
+    # --- Full indexing (new file or after reset) ---
     metadata_path = Path(source_file_override) if source_file_override else filepath
     metadata = extract_session_metadata(metadata_path)
-    
-    # Extract messages
-    messages, first_ts, last_ts = extract_messages(filepath)
-    
+
+    messages, first_ts, last_ts, end_offset = extract_messages(filepath)
+
     if not messages:
         return {'status': 'skipped', 'reason': 'no messages'}
-    
-    # Generate session ID from filename
+
     session_id = filepath.stem
-    
+
     # Insert session
     conn.execute("""
-        INSERT OR REPLACE INTO sessions 
+        INSERT OR REPLACE INTO sessions
         (id, agent_id, channel, channel_id, started_at, ended_at, message_count, source_file)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     """, (
@@ -446,21 +555,20 @@ def index_session_file(
             msg['message_index']
         ))
         message_ids.append(cursor.lastrowid)
-    
+
     # Generate and store embeddings if requested
     embed_count = 0
     if generate_embeds and openai_client:
-        # Filter messages worth embedding
         embed_candidates = [
-            (mid, msg['content']) 
+            (mid, msg['content'])
             for mid, msg in zip(message_ids, messages)
             if len(msg['content']) >= MIN_CONTENT_LENGTH
         ]
-        
+
         if embed_candidates:
-            texts = [c[1][:2000] for c in embed_candidates]  # ~1500 tokens, safe for 8192 limit
+            texts = [c[1][:2000] for c in embed_candidates]
             embeddings = generate_embeddings(texts, openai_client)
-            
+
             for (mid, _), embedding in zip(embed_candidates, embeddings):
                 if embedding is not None:
                     conn.execute("""
@@ -468,16 +576,16 @@ def index_session_file(
                         VALUES (?, ?, ?)
                     """, (mid, embedding.tobytes(), EMBEDDING_MODEL))
                     embed_count += 1
-    
-    # Log indexing
+
+    # Log indexing with byte offset for incremental next time
     stat = filepath.stat()
     conn.execute("""
-        INSERT INTO index_log (source_file, file_size, file_mtime, message_count)
-        VALUES (?, ?, ?, ?)
-    """, (canonical_source, stat.st_size, datetime.fromtimestamp(stat.st_mtime), len(messages)))
-    
+        INSERT INTO index_log (source_file, file_size, file_mtime, message_count, last_byte_offset)
+        VALUES (?, ?, ?, ?, ?)
+    """, (canonical_source, stat.st_size, datetime.fromtimestamp(stat.st_mtime), len(messages), end_offset))
+
     conn.commit()
-    
+
     return {
         'status': 'indexed',
         'session_id': session_id,
