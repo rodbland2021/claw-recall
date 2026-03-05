@@ -78,9 +78,28 @@ class SSHTunnel:
     def __init__(self):
         self._proc = None
 
+    def _kill_stale_tunnel(self):
+        """Kill any stale SSH tunnel on our port from a previous run."""
+        try:
+            result = subprocess.run(
+                ["lsof", "-ti", f":{SSH_LOCAL_PORT}"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.stdout.strip():
+                for pid in result.stdout.strip().split('\n'):
+                    try:
+                        os.kill(int(pid), 9)
+                        log.info(f"Killed stale tunnel process (PID {pid})")
+                    except (ValueError, ProcessLookupError):
+                        pass
+                time.sleep(1)
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
     def ensure_running(self) -> bool:
         if self._proc is not None and self._proc.poll() is None:
             return True
+        self._kill_stale_tunnel()
         # Start new tunnel
         cmd = [
             "ssh", "-N",
@@ -182,10 +201,11 @@ def push_file(filepath: Path, dry_run: bool = False) -> dict:
         log.info(f"[DRY RUN] Would push: {filepath} ({file_size:,} bytes)")
         return {"status": "dry_run"}
 
+    session = requests.Session()
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             with open(filepath, 'rb') as f:
-                response = requests.post(
+                response = session.post(
                     VPS_ENDPOINT,
                     files={'file': (filepath.name, f, 'application/x-jsonlines')},
                     data={'source_path': str(filepath)},
@@ -304,9 +324,10 @@ def main():
             stats["errors"] += 1
             log.error(f"Failed to push {filepath.name}: {result.get('reason', 'unknown')}")
 
-    # Catch-up scan
+    # Catch-up scan — recent files first for fastest value
     log.info("Running catch-up scan...")
     catch_up = 0
+    pending_files = []
     for watch_dir in WATCH_DIRS:
         if not watch_dir.exists():
             log.warning(f"Directory not found: {watch_dir}")
@@ -315,11 +336,26 @@ def main():
             if not _should_handle(str(filepath)):
                 continue
             if needs_indexing(filepath, state):
-                handle_change(str(filepath))
-                catch_up += 1
+                try:
+                    pending_files.append((filepath.stat().st_mtime, filepath))
+                except OSError:
+                    pass
+    pending_files.sort(reverse=True)  # Most recent first
+    log.info(f"Found {len(pending_files)} files to process")
+    for _, filepath in pending_files:
+        handle_change(str(filepath))
+        catch_up += 1
+
+    # Prune state entries for deleted files
+    pruned = 0
+    for path_str in list(state.get("indexed", {}).keys()):
+        if not Path(path_str).exists():
+            del state["indexed"][path_str]
+            pruned += 1
 
     log.info(f"Catch-up complete: {catch_up} files processed "
-             f"(pushed={stats['pushed']} skipped={stats['skipped']} errors={stats['errors']})")
+             f"(pushed={stats['pushed']} skipped={stats['skipped']} errors={stats['errors']}"
+             f"{f', pruned={pruned} stale entries' if pruned else ''})")
     save_state(state)
 
     if args.catch_up:
