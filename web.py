@@ -284,6 +284,11 @@ def index_local_endpoint():
             )
             log.info(f"index-local: {filepath.name} -> {result.get('status')} "
                      f"({result.get('messages', 0)} msgs, agent={result.get('agent', '?')})")
+            # Clean up staging file to prevent /tmp from filling up
+            try:
+                filepath.unlink(missing_ok=True)
+            except OSError as cleanup_err:
+                log.warning(f"Could not clean up staging file {filepath}: {cleanup_err}")
             return jsonify(result), 200
         finally:
             conn.close()
