@@ -1,5 +1,6 @@
 # Claw Recall
 
+[![Tests](https://github.com/rodbland2021/claw-recall/actions/workflows/test.yml/badge.svg)](https://github.com/rodbland2021/claw-recall/actions/workflows/test.yml)
 [![Discord](https://img.shields.io/discord/1479309142060695664?color=5865F2&logo=discord&logoColor=white&label=Discord)](https://discord.gg/4wGTVa9Bt6)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-2.0.0-blue)](CHANGELOG.md)

@@ -20,7 +20,7 @@ import os
 import pytest
 import numpy as np
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch, MagicMock
 
 # Ensure repo root is on path
@@ -1192,7 +1192,7 @@ class TestBrowseRecent:
     def populated_db(self, test_db):
         """Insert sessions and messages with recent timestamps."""
         conn, db_path = test_db
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
 
         def _ts(dt):
             """Format timestamp to match production DB format (space separator, not T)."""
