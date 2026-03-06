@@ -231,7 +231,7 @@ def unified_search(
                     "channel": r.channel,
                     "role": r.role,
                     "content": r.content[:500],
-                    "fullContent": r.content[:500],
+                    "fullContent": r.content,
                     "timestamp": r.timestamp.isoformat() if r.timestamp else None,
                     "score": round(r.score, 3),
                     "session_id": r.session_id,

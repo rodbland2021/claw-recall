@@ -72,6 +72,7 @@ def main():
         print(f"Embedding {len(rows)} / {gap} remaining messages...")
 
     embedded = 0
+    errors = 0
     for i in range(0, len(rows), EMBEDDING_BATCH_SIZE):
         batch = rows[i:i + EMBEDDING_BATCH_SIZE]
         texts = [content[:2000] for _, content in batch]
@@ -86,8 +87,10 @@ def main():
                 )
                 embedded += 1
         except Exception as e:
+            errors += 1
             if not args.quiet:
-                print(f"Batch error: {e}")
+                print(f"Batch error at offset {i}: {e}")
+            conn.commit()  # Save progress before stopping
             break
 
         if (i + EMBEDDING_BATCH_SIZE) % 200 == 0:
@@ -97,7 +100,11 @@ def main():
     conn.close()
 
     if not args.quiet:
-        print(f"Done: {embedded} embedded, {gap - embedded} remaining")
+        print(f"Done: {embedded} embedded, {gap - embedded} remaining" +
+              (f", {errors} batch errors" if errors else ""))
+
+    if errors:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

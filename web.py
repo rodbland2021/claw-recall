@@ -93,7 +93,8 @@ def status_endpoint():
             try:
                 info["db_thoughts"] = conn.execute("SELECT COUNT(*) FROM thoughts").fetchone()[0]
                 info["db_thought_embeddings"] = conn.execute("SELECT COUNT(*) FROM thought_embeddings").fetchone()[0]
-            except Exception:
+            except Exception as e:
+                log.debug(f"Thought tables not available: {e}")
                 info["db_thoughts"] = 0
     except Exception as e:
         info["db_error"] = str(e)
