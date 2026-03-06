@@ -44,13 +44,16 @@ WATCH_DIRS = [
     Path.home() / ".openclaw" / "agents-archive",              # Claude (OpenClaw) archived
 ]
 
-VPS_ENDPOINT = "http://localhost:18765/index-session"
-VPS_INDEX_LOCAL_ENDPOINT = "http://localhost:18765/index-local"
+# SSH tunnel: forwards local port to the Claw Recall web API on the server.
+# Override these via environment variables for your setup.
+SSH_LOCAL_PORT = int(os.environ.get("RECALL_SSH_LOCAL_PORT", "18765"))
+SSH_REMOTE_HOST = os.environ.get("RECALL_SSH_REMOTE_HOST", "127.0.0.1")
+SSH_REMOTE_PORT = int(os.environ.get("RECALL_SSH_REMOTE_PORT", "8765"))
+SSH_HOST = os.environ.get("RECALL_SSH_HOST", "your-server")
+
+VPS_ENDPOINT = f"http://localhost:{SSH_LOCAL_PORT}/index-session"
+VPS_INDEX_LOCAL_ENDPOINT = f"http://localhost:{SSH_LOCAL_PORT}/index-local"
 VPS_REMOTE_STAGING = "/tmp/claw-recall-remote"
-SSH_LOCAL_PORT = 18765
-SSH_REMOTE_HOST = "172.17.0.1"
-SSH_REMOTE_PORT = 8765
-SSH_HOST = "vps"
 
 DEBOUNCE_SECONDS = 10
 MAX_FILE_SIZE_MB = 200  # HTTP upload limit; larger files use rsync

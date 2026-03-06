@@ -288,7 +288,13 @@ Run it via cron:
 */15 * * * * /bin/bash /path/to/claw-recall/health-check.sh
 ```
 
-Configure the URLs, alert method, and paths in the script's configuration section.
+Configure via environment variables:
+
+```bash
+export CLAW_RECALL_SSE_URL="http://your-server:8766/sse"
+export CLAW_RECALL_WEB_URL="http://127.0.0.1:8765/status"
+export CLAW_RECALL_ALERT_SCRIPT="/path/to/your/alert-script.sh"  # receives: title, message, priority
+```
 
 ## Production Deployment
 
@@ -404,6 +410,12 @@ Force a mode with `--keyword` or `--semantic` flags.
 | `MCP_SSE_PORT` | No | SSE server bind port (default: `8766`) |
 | `OPENAI_BASE_URL` | No | Override API endpoint for local models (e.g. `http://localhost:11434/v1`) |
 | `MCP_SSE_ALLOWED_HOSTS` | No | Extra allowed hosts for SSE (comma-separated) |
+| `CLAW_RECALL_SSE_URL` | No | SSE URL for health check (default: `http://127.0.0.1:8766/sse`) |
+| `CLAW_RECALL_WEB_URL` | No | Web API URL for health check (default: `http://127.0.0.1:8765/status`) |
+| `CLAW_RECALL_ALERT_SCRIPT` | No | Path to alert script (receives: title, message, priority) |
+| `RECALL_SSH_HOST` | No | SSH host for remote watcher (default: `your-server`) |
+| `RECALL_SSH_REMOTE_HOST` | No | Remote host for SSH tunnel (default: `127.0.0.1`) |
+| `RECALL_SSH_REMOTE_PORT` | No | Remote port for SSH tunnel (default: `8765`) |
 
 ### Using a Local Embedding Model
 

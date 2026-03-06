@@ -188,8 +188,8 @@ def _extract_path_suffix(source_path: str) -> str:
     to identify the agent (CC, Claude, Kit, etc.).
 
     Examples:
-        /home/rodbland/.claude/projects/-test/abc.jsonl -> .claude/projects/-test/abc.jsonl
-        /home/rodbland/.openclaw/agents/main/sessions/x.jsonl -> .openclaw/agents/main/sessions/x.jsonl
+        /home/user/.claude/projects/-test/abc.jsonl -> .claude/projects/-test/abc.jsonl
+        /home/user/.openclaw/agents/main/sessions/x.jsonl -> .openclaw/agents/main/sessions/x.jsonl
     """
     for marker in ['.claude/projects', '.openclaw/agents', '.openclaw/agents-archive']:
         idx = source_path.find(marker)
@@ -257,7 +257,7 @@ def index_session_endpoint():
 def index_local_endpoint():
     """Index a local file that was rsync'd to VPS (for oversized files).
 
-    Expects JSON: {"filepath": "/tmp/claw-recall-remote/...", "source_path": "/home/rodbland/..."}
+    Expects JSON: {"filepath": "/tmp/claw-recall-remote/...", "source_path": "/home/user/..."}
     """
     data = request.get_json(silent=True) or {}
     filepath_str = data.get('filepath', '')

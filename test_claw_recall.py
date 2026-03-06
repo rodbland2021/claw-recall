@@ -957,21 +957,21 @@ class TestPathSuffix:
     def test_cc_projects_path(self):
         from web import _extract_path_suffix
         result = _extract_path_suffix(
-            "/home/rodbland/.claude/projects/-mnt-c-code-hostinger/9c41e634.jsonl"
+            "/home/testuser/.claude/projects/-mnt-c-code-hostinger/9c41e634.jsonl"
         )
         assert result == ".claude/projects/-mnt-c-code-hostinger/9c41e634.jsonl"
 
     def test_openclaw_agents_path(self):
         from web import _extract_path_suffix
         result = _extract_path_suffix(
-            "/home/rodbland/.openclaw/agents/main/sessions/agent-main-xxx.jsonl"
+            "/home/testuser/.openclaw/agents/main/sessions/agent-main-xxx.jsonl"
         )
         assert result == ".openclaw/agents/main/sessions/agent-main-xxx.jsonl"
 
     def test_openclaw_archive_path(self):
         from web import _extract_path_suffix
         result = _extract_path_suffix(
-            "/home/rodbland/.openclaw/agents-archive/main-abc-123.jsonl"
+            "/home/testuser/.openclaw/agents-archive/main-abc-123.jsonl"
         )
         assert result == ".openclaw/agents-archive/main-abc-123.jsonl"
 
@@ -998,7 +998,7 @@ class TestSourceFileOverride:
     def test_override_stores_custom_source_file(self, test_db, tmp_path):
         conn, _ = test_db
         session_file = self._make_cc_session(tmp_path)
-        override_path = "/home/rodbland/.claude/projects/-test/abc12345-6789-abcd-ef01-234567890abc.jsonl"
+        override_path = "/home/testuser/.claude/projects/-test/abc12345-6789-abcd-ef01-234567890abc.jsonl"
 
         from index import index_session_file
         result = index_session_file(session_file, conn, source_file_override=override_path)
@@ -1035,7 +1035,7 @@ class TestSourceFileOverride:
         """Same override path should trigger skip on second call with same size."""
         conn, _ = test_db
         session_file = self._make_cc_session(tmp_path)
-        override_path = "/home/rodbland/.claude/projects/-test/abc12345-6789-abcd-ef01-234567890abc.jsonl"
+        override_path = "/home/testuser/.claude/projects/-test/abc12345-6789-abcd-ef01-234567890abc.jsonl"
 
         from index import index_session_file
         r1 = index_session_file(session_file, conn, source_file_override=override_path)
@@ -1091,7 +1091,7 @@ class TestIndexSessionEndpoint:
         )
         response = client.post('/index-session', data={
             'file': (io.BytesIO(content.encode()), 'abc12345-uuid-test.jsonl'),
-            'source_path': '/home/rodbland/.claude/projects/-test/abc12345-uuid-test.jsonl',
+            'source_path': '/home/testuser/.claude/projects/-test/abc12345-uuid-test.jsonl',
         }, content_type='multipart/form-data')
 
         assert response.status_code == 200
@@ -1108,7 +1108,7 @@ class TestIndexSessionEndpoint:
         )
         response = client.post('/index-session', data={
             'file': (io.BytesIO(content.encode()), 'agent-main-telegram-xyz.jsonl'),
-            'source_path': '/home/rodbland/.openclaw/agents/main/sessions/agent-main-telegram-xyz.jsonl',
+            'source_path': '/home/testuser/.openclaw/agents/main/sessions/agent-main-telegram-xyz.jsonl',
         }, content_type='multipart/form-data')
 
         assert response.status_code == 200
@@ -1122,7 +1122,7 @@ class TestIndexSessionEndpoint:
             '{"type":"user","message":{"role":"user","content":"dedup test"}}\n'
             '{"type":"assistant","message":{"role":"assistant","content":"response"}}\n'
         )
-        source = '/home/rodbland/.claude/projects/-test/dedup123.jsonl'
+        source = '/home/testuser/.claude/projects/-test/dedup123.jsonl'
 
         r1 = client.post('/index-session', data={
             'file': (io.BytesIO(content.encode()), 'dedup123.jsonl'),
@@ -1144,7 +1144,7 @@ class TestIndexSessionEndpoint:
         )
         client.post('/index-session', data={
             'file': (io.BytesIO(content.encode()), 'cleanup123.jsonl'),
-            'source_path': '/home/rodbland/.claude/projects/-test/cleanup123.jsonl',
+            'source_path': '/home/testuser/.claude/projects/-test/cleanup123.jsonl',
         }, content_type='multipart/form-data')
 
         # Temp file should not exist after request

@@ -9,11 +9,12 @@
 
 set -euo pipefail
 
-PUSHOVER_SCRIPT="$HOME/clawd/scripts/pushover.sh"
+# --- Configuration (override via environment or edit below) ---
+PUSHOVER_SCRIPT="${CLAW_RECALL_ALERT_SCRIPT:-}"
 STATE_FILE="/tmp/claw-recall-health-state.json"
-SSE_URL="http://100.82.195.86:8766/sse"
-WEB_URL="http://172.17.0.1:8765/status"
-DB_PATH="$HOME/shared/convo-memory/convo_memory.db"
+SSE_URL="${CLAW_RECALL_SSE_URL:-http://127.0.0.1:8766/sse}"
+WEB_URL="${CLAW_RECALL_WEB_URL:-http://127.0.0.1:8765/status}"
+DB_PATH="${CLAW_RECALL_DB:-$HOME/convo_memory.db}"
 LOG="/tmp/claw-recall-health.log"
 
 log() { echo "[$(date -u '+%Y-%m-%d %H:%M:%S UTC')] $1" >> "$LOG"; }
@@ -80,13 +81,25 @@ fi
 # index_log entry is older than 2 hours. If so, indexing may be stuck.
 if [ -f "$DB_PATH" ]; then
     RECENT_INDEX=$(sqlite3 "$DB_PATH" "SELECT MAX(indexed_at) FROM index_log WHERE indexed_at > datetime('now', '-2 hours')" 2>/dev/null)
-    RECENT_SESSION_FILES=$(find ~/.openclaw/agents-archive/ ~/.openclaw/agents/ -name "*.jsonl" -mmin -120 2>/dev/null | wc -l)
+    RECENT_SESSION_FILES=$(find ~/.openclaw/agents-archive/ ~/.openclaw/agents/ ~/.claude/projects/ -name "*.jsonl" -mmin -120 2>/dev/null | wc -l)
 
     if [ "$RECENT_SESSION_FILES" -gt 0 ] && [ -z "$RECENT_INDEX" ]; then
         FAILURES="${FAILURES}[WARN] $RECENT_SESSION_FILES session files modified in last 2h but no indexing activity\n"
         log "FAIL: $RECENT_SESSION_FILES files modified but no recent indexing"
     else
         log "OK: Indexing pipeline healthy (files=$RECENT_SESSION_FILES, recent_index=${RECENT_INDEX:-none})"
+    fi
+
+    # 2c. Check embedding gap — alert if growing significantly
+    EMB_GAP=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM messages m LEFT JOIN embeddings e ON e.message_id = m.id WHERE e.id IS NULL AND LENGTH(m.content) >= 50" 2>/dev/null || echo "0")
+    # Alert threshold — set higher during initial backfill, lower once caught up.
+    # The backfill_embeddings.py cron processes ~500/run; a growing gap means it broke.
+    EMB_GAP_THRESHOLD="${CLAW_RECALL_EMB_GAP_THRESHOLD:-400000}"
+    if [ "$EMB_GAP" -gt "$EMB_GAP_THRESHOLD" ]; then
+        FAILURES="${FAILURES}[WARN] Embedding gap: $EMB_GAP messages without embeddings\n"
+        log "WARN: Embedding gap $EMB_GAP"
+    else
+        log "OK: Embedding gap $EMB_GAP"
     fi
 fi
 
@@ -106,15 +119,19 @@ if [ -n "$FAILURES" ]; then
     if [ "$FAILURE_HASH" != "$LAST_HASH" ] || [ "$SINCE_LAST" -gt 7200 ]; then
         log "ALERT: Sending notification"
         ALERT_MSG=$(echo -e "$FAILURES")
-        if [ -f "$PUSHOVER_SCRIPT" ]; then
-            # Priority 1 for CRITICAL, 0 for WARN-only
+        # Send alert via configured script (receives: title, message, priority)
+        # Priority: 1 = CRITICAL, 0 = WARN
+        if [ -n "$PUSHOVER_SCRIPT" ] && [ -f "$PUSHOVER_SCRIPT" ]; then
             PRIORITY=0
             if echo -e "$FAILURES" | grep -q "CRITICAL"; then
                 PRIORITY=1
             fi
             bash "$PUSHOVER_SCRIPT" "Claw Recall Alert" "$ALERT_MSG" "$PRIORITY" 2>/dev/null || true
+        else
+            # No alert script configured — log the alert for manual review
+            log "ALERT (no alert script configured): $ALERT_MSG"
         fi
-        python3 -c "import json; json.dump({'hash':'$FAILURE_HASH','epoch':$NOW,'time':'$(date -u -Iseconds)'},open('$STATE_FILE','w'))"
+        python3 -c "import json,sys; json.dump({'hash':sys.argv[1],'epoch':int(sys.argv[2]),'time':sys.argv[3]},open(sys.argv[4],'w'))" "$FAILURE_HASH" "$NOW" "$(date -u -Iseconds)" "$STATE_FILE"
     else
         log "SUPPRESSED: Same failure, last alert ${SINCE_LAST}s ago"
     fi
