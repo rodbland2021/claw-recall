@@ -1158,10 +1158,14 @@ class TestBrowseRecent:
         conn, db_path = test_db
         now = datetime.utcnow()
 
+        def _ts(dt):
+            """Format timestamp to match production DB format (space separator, not T)."""
+            return dt.strftime('%Y-%m-%d %H:%M:%S.%f+00:00')
+
         # Session 1: kit, 10 minutes ago
         conn.execute(
             "INSERT INTO sessions (id, agent_id, started_at, message_count) VALUES (?, ?, ?, ?)",
-            ("sess-kit-1", "kit", (now - timedelta(minutes=10)).isoformat(), 4),
+            ("sess-kit-1", "kit", _ts(now - timedelta(minutes=10)), 4),
         )
         for i, (role, content) in enumerate([
             ("user", "Check my email"),
@@ -1171,13 +1175,13 @@ class TestBrowseRecent:
         ]):
             conn.execute(
                 "INSERT INTO messages (session_id, role, content, timestamp, message_index) VALUES (?, ?, ?, ?, ?)",
-                ("sess-kit-1", role, content, (now - timedelta(minutes=10) + timedelta(seconds=i * 5)).isoformat() + "+00:00", i),
+                ("sess-kit-1", role, content, _ts(now - timedelta(minutes=10) + timedelta(seconds=i * 5)), i),
             )
 
         # Session 2: cyrus, 5 minutes ago
         conn.execute(
             "INSERT INTO sessions (id, agent_id, started_at, message_count) VALUES (?, ?, ?, ?)",
-            ("sess-cyrus-1", "cyrus", (now - timedelta(minutes=5)).isoformat(), 3),
+            ("sess-cyrus-1", "cyrus", _ts(now - timedelta(minutes=5)), 3),
         )
         for i, (role, content) in enumerate([
             ("user", "What are the latest ads results?"),
@@ -1186,27 +1190,27 @@ class TestBrowseRecent:
         ]):
             conn.execute(
                 "INSERT INTO messages (session_id, role, content, timestamp, message_index) VALUES (?, ?, ?, ?, ?)",
-                ("sess-cyrus-1", role, content, (now - timedelta(minutes=5) + timedelta(seconds=i * 5)).isoformat() + "+00:00", i),
+                ("sess-cyrus-1", role, content, _ts(now - timedelta(minutes=5) + timedelta(seconds=i * 5)), i),
             )
 
         # Session 3: boot (should be filtered out)
         conn.execute(
             "INSERT INTO sessions (id, agent_id, started_at, message_count) VALUES (?, ?, ?, ?)",
-            ("sess-boot-1", "boot", (now - timedelta(minutes=3)).isoformat(), 5),
+            ("sess-boot-1", "boot", _ts(now - timedelta(minutes=3)), 5),
         )
         conn.execute(
             "INSERT INTO messages (session_id, role, content, timestamp, message_index) VALUES (?, ?, ?, ?, ?)",
-            ("sess-boot-1", "system", "Boot sequence", (now - timedelta(minutes=3)).isoformat() + "+00:00", 0),
+            ("sess-boot-1", "system", "Boot sequence", _ts(now - timedelta(minutes=3)), 0),
         )
 
         # Session 4: old session (2 hours ago, should be excluded at 30 min)
         conn.execute(
             "INSERT INTO sessions (id, agent_id, started_at, message_count) VALUES (?, ?, ?, ?)",
-            ("sess-old-1", "kit", (now - timedelta(hours=2)).isoformat(), 5),
+            ("sess-old-1", "kit", _ts(now - timedelta(hours=2)), 5),
         )
         conn.execute(
             "INSERT INTO messages (session_id, role, content, timestamp, message_index) VALUES (?, ?, ?, ?, ?)",
-            ("sess-old-1", "user", "Old message", (now - timedelta(hours=2)).isoformat() + "+00:00", 0),
+            ("sess-old-1", "user", "Old message", _ts(now - timedelta(hours=2)), 0),
         )
 
         conn.commit()
