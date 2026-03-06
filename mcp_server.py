@@ -29,6 +29,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from mcp.server.fastmcp import FastMCP
+from search import _resolve_agent
 
 mcp = FastMCP("Claw Recall", instructions="""
 Claw Recall is a searchable AI memory system — indexed conversation messages
@@ -37,6 +38,9 @@ and captured thoughts across all agents.
 Use search_memory for finding past conversations and thoughts.
 Use browse_recent to get full transcripts of recent conversations (no search query needed).
 Use capture_thought to save important information for future recall.
+
+Agent names: Use display names for the 'agent' filter — Kit, CC, CC-VPS, Claude, cyrus, etc.
+OpenClaw slot IDs (main, claude-code) are also accepted and auto-resolved.
 """)
 
 
@@ -164,6 +168,7 @@ def browse_activity(
 
     conn = sqlite3.connect(str(DB_PATH))
     conn.execute("PRAGMA journal_mode=WAL")
+    agent = _resolve_agent(agent) if agent else agent
 
     sql = """
         SELECT s.agent_id, s.started_at, s.message_count,
@@ -216,6 +221,7 @@ def browse_recent(
     from search import DB_PATH
 
     minutes = max(1, min(minutes, 120))
+    agent = _resolve_agent(agent) if agent else agent
 
     conn = sqlite3.connect(str(DB_PATH))
     conn.execute("PRAGMA journal_mode=WAL")

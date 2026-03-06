@@ -13,7 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from recall import unified_search
-from search import DB_PATH, cache_status, preload_embedding_cache
+from search import DB_PATH, cache_status, preload_embedding_cache, _resolve_agent
 import re
 
 
@@ -337,7 +337,7 @@ def thoughts_endpoint():
 def search_endpoint():
     query = request.args.get('q', '')
     semantic = request.args.get('semantic', 'false').lower() == 'true'
-    agent = request.args.get('agent', '') or None
+    agent = _resolve_agent(request.args.get('agent', '') or None)
     source = request.args.get('source', '') or None
     files_only = request.args.get('files_only', 'false').lower() == 'true'
     convos_only = request.args.get('convos_only', 'false').lower() == 'true'
@@ -445,7 +445,7 @@ def context_endpoint():
 @app.route('/activity')
 def activity_endpoint():
     """Browse recent agent conversations — no search query needed."""
-    agent = request.args.get('agent', '') or None
+    agent = _resolve_agent(request.args.get('agent', '') or None)
     days = _safe_int(request.args.get('days', '14'), 14, lo=0)
     limit = _safe_int(request.args.get('limit', '30'), 30, lo=0, hi=100)
 
@@ -513,7 +513,7 @@ def activity_endpoint():
 @app.route('/recent')
 def recent_endpoint():
     """Get full transcript of recent conversations — last N minutes of messages."""
-    agent = request.args.get('agent', '') or None
+    agent = _resolve_agent(request.args.get('agent', '') or None)
     minutes = _safe_int(request.args.get('minutes', '30'), 30, lo=1, hi=120)
 
     try:

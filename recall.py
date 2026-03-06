@@ -513,7 +513,12 @@ Examples:
     print(f"🦞 Claw Recall: '{query}'")
     print(f"   Mode: {mode_str}")
     if args.agent:
-        print(f"   Agent: {args.agent}")
+        from search import _resolve_agent
+        resolved = _resolve_agent(args.agent)
+        if resolved != args.agent:
+            print(f"   Agent: {args.agent} → {resolved}")
+        else:
+            print(f"   Agent: {args.agent}")
     if args.since:
         # Convert fractional days back to human-readable for display
         mins = args.since * 1440

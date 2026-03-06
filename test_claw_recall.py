@@ -949,6 +949,39 @@ class TestIntegration:
             assert stats['by_source'][source] == 1
 
 
+# ─── Agent Alias Resolution Tests ─────────────────────────────────────────────
+
+class TestAgentAliases:
+    """Test that raw OpenClaw slot IDs resolve to display names."""
+
+    def test_main_resolves_to_kit(self):
+        from search import _resolve_agent
+        assert _resolve_agent("main") == "Kit"
+
+    def test_claude_code_resolves_to_cc(self):
+        from search import _resolve_agent
+        assert _resolve_agent("claude-code") == "CC"
+
+    def test_display_name_passthrough(self):
+        from search import _resolve_agent
+        assert _resolve_agent("Kit") == "Kit"
+        assert _resolve_agent("cyrus") == "cyrus"
+
+    def test_none_passthrough(self):
+        from search import _resolve_agent
+        assert _resolve_agent(None) is None
+        assert _resolve_agent("") == ""
+
+    def test_case_insensitive(self):
+        from search import _resolve_agent
+        assert _resolve_agent("MAIN") == "Kit"
+        assert _resolve_agent("Claude-Code") == "CC"
+
+    def test_unknown_agent_passthrough(self):
+        from search import _resolve_agent
+        assert _resolve_agent("unknown-agent") == "unknown-agent"
+
+
 # ─── Remote Session Indexing Tests ────────────────────────────────────────────
 
 class TestPathSuffix:

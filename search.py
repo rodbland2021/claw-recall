@@ -24,6 +24,21 @@ except ImportError:
 DB_PATH = Path(__file__).parent / "convo_memory.db"
 EMBEDDING_MODEL = "text-embedding-3-small"
 
+# Agent name mapping — translates raw OpenClaw slot IDs to display names stored in DB.
+# Agents can query with either form (e.g., "main" or "kit") and get correct results.
+_AGENT_ALIASES = {
+    'main': 'Kit',
+    'claude-code': 'CC',
+    'claude': 'Claude',
+    'cc-vps': 'CC-VPS',
+}
+
+def _resolve_agent(agent: Optional[str]) -> Optional[str]:
+    """Resolve an agent name/alias to the display name stored in the DB."""
+    if not agent:
+        return agent
+    return _AGENT_ALIASES.get(agent.lower(), agent)
+
 # Common English stop words to drop from FTS keyword queries
 _STOP_WORDS = frozenset({
     'a', 'an', 'the', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
@@ -131,6 +146,7 @@ def keyword_search(
     date_to: Optional[datetime] = None
 ) -> List[SearchResult]:
     """Search using FTS5 full-text search."""
+    agent = _resolve_agent(agent)
 
     # Build FTS query — AND all content words (drop stop words for better recall)
     words = [w.replace('"', '') for w in query.split() if w.replace('"', '')]
@@ -331,6 +347,7 @@ def semantic_search(
     Instead, we score all embeddings first, then look up content only for the
     top-K matches from the database.
     """
+    agent = _resolve_agent(agent)
 
     if not OPENAI_AVAILABLE or openai_client is None:
         print("⚠️  Semantic search requires OpenAI. Falling back to keyword search.")
