@@ -34,20 +34,58 @@ python3 web.py --host 127.0.0.1 --port 8765
 
 ## Architecture
 
-```
-Conversations (.jsonl)    Gmail/Drive/Slack     Manual Capture
-        │                       │                     │
-        ▼                       ▼                     ▼
-   index.py              capture_sources.py      capture.py
-        │                       │                     │
-        └───────────┬───────────┘─────────────────────┘
-                    ▼
-            convo_memory.db (SQLite WAL)
-                    │
-        ┌───────────┼───────────┬──────────────┐
-        │           │           │              │
-   recall.py     web.py    mcp_server.py   mcp_server_sse.py
-    (CLI)      (REST API)  (MCP stdio)     (MCP over HTTP)
+```mermaid
+flowchart TB
+    subgraph Sources["Data Sources"]
+        JSONL["Session Files (.jsonl)<br/>OpenClaw + Claude Code"]
+        EXT["Gmail / Drive / Slack"]
+        MANUAL["Manual Capture<br/>thoughts, notes"]
+    end
+
+    subgraph Ingestion["Ingestion Layer"]
+        IDX["index.py<br/>FTS5 + embeddings"]
+        CAP["capture_sources.py"]
+        CAPMAN["capture.py"]
+        WATCH["watcher.py<br/>inotify (local)"]
+        REMWATCH["cc-session-watcher.py<br/>watchdog (remote)"]
+    end
+
+    subgraph Storage["Storage"]
+        DB[("convo_memory.db<br/>SQLite WAL<br/>FTS5 + embeddings")]
+    end
+
+    subgraph Access["Access Layer"]
+        CLI["recall.py<br/>CLI"]
+        WEB["web.py<br/>REST API + Web UI"]
+        MCP_STDIO["mcp_server.py<br/>MCP stdio"]
+        MCP_SSE["mcp_server_sse.py<br/>MCP SSE/HTTP"]
+    end
+
+    subgraph Consumers["Consumers"]
+        LOCAL_AGENT["Local Agents<br/>(same machine)"]
+        REMOTE_AGENT["Remote Agents<br/>(other machines)"]
+        HUMAN["Humans<br/>(browser, terminal)"]
+    end
+
+    JSONL --> IDX
+    JSONL --> WATCH --> IDX
+    JSONL --> REMWATCH -->|HTTP POST| WEB --> IDX
+    EXT --> CAP
+    MANUAL --> CAPMAN
+
+    IDX --> DB
+    CAP --> DB
+    CAPMAN --> DB
+
+    DB --> CLI
+    DB --> WEB
+    DB --> MCP_STDIO
+    DB --> MCP_SSE
+
+    MCP_STDIO --> LOCAL_AGENT
+    MCP_SSE -->|HTTP| REMOTE_AGENT
+    WEB --> HUMAN
+    CLI --> HUMAN
 ```
 
 **Three ways agents access Claw Recall:**
