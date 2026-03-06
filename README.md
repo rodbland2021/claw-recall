@@ -12,6 +12,57 @@ Claw Recall gives your AI agents the ability to search through ALL past conversa
 - **Recovers context** after compaction/restart with `browse_recent` (full transcript, no search query needed)
 - **Serves** results via CLI, REST API, MCP (stdio + SSE), and a web UI
 
+## Use Cases
+
+### Post-Compaction Recovery
+Your agent just had its context compacted and lost the details of what it was working on 10 minutes ago. Instead of asking you to repeat everything:
+```bash
+recall --recent --agent kit --minutes 30
+# Returns the full transcript — agent reads it and picks up where it left off
+```
+
+### Cross-Agent Context
+Agent A is working on a feature but needs to know what Agent B decided yesterday about the database schema:
+```bash
+recall -q "database schema migration" --agent cc --days 2
+# Finds the exact conversation where the decision was made
+```
+
+### "What Did We Decide?"
+You discussed something with your agent last week but can't remember the outcome. Your agent searches for it:
+```bash
+recall -q "TikTok campaign budget" --days 7
+# Surfaces the conversation with the decision, including the reasoning
+```
+
+### Finding Past Solutions
+Your agent hits an error it's seen before. Instead of debugging from scratch:
+```bash
+recall -q "CORS error oauth proxy" --semantic
+# Semantic search finds related conversations even if the exact words differ
+```
+
+### Email and Document Search
+You need your agent to find that email from last month about the shipping delay:
+```bash
+recall -q "shipping delay January" --files-only
+# Searches indexed Gmail and Drive documents alongside conversations
+```
+
+### Onboarding a New Agent
+A new agent joins your setup and needs to understand existing context:
+```bash
+recall --activity --days 7
+# Shows what all agents have been working on across the past week
+```
+
+### Capturing Insights
+Your agent learns something important that should survive any future compaction:
+```bash
+recall --capture "SQLite WAL mode must be enabled before any concurrent reads"
+# Stored as a searchable thought, retrievable by any agent
+```
+
 ## Quick Start
 
 ```bash
