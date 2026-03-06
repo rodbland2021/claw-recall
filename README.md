@@ -417,16 +417,12 @@ python3 -m pytest tests/test_claw_recall.py -k mcp        # MCP tests
 
 ## Support
 
-If Claw Recall is useful to you:
+Claw Recall is a solo-maintained project. Donations go directly toward hosting costs, development time, and keeping the Discord community running. Even a small contribution helps — and honestly, knowing people find the tool useful enough to support makes the late nights worth it.
 
 - **Star this repo** to help others find it
 - **Report bugs** via [GitHub Issues](https://github.com/rodbland2021/claw-recall/issues)
-- **Buy Me a Coffee** at [buymeacoffee.com/rodbland](https://buymeacoffee.com/rodbland)
-
-**Bitcoin:**
-```
-bc1q5ggxp0wrgcnn07hkjdhwqtxmsfejqh329djhqz
-```
+- [Buy Me a Coffee](https://buymeacoffee.com/rodbland)
+- Make a Bitcoin donation — `bc1q5ggxp0wrgcnn07hkjdhwqtxmsfejqh329djhqz`
 
 ## License
 
