@@ -7,8 +7,10 @@ cd "$SCRIPT_DIR" || exit 1
 
 log() { echo "[$(date -u '+%Y-%m-%d %H:%M:%S UTC')] $*"; }
 
-# Source OpenAI key
-export OPENAI_API_KEY="$(grep OPENAI_API_KEY ~/.bashrc | cut -d'"' -f2)"
+# Use OPENAI_API_KEY from environment (set via systemd EnvironmentFile, .env, or export)
+if [ -z "$OPENAI_API_KEY" ] && [ -f "$SCRIPT_DIR/.env" ]; then
+    export $(grep -v '^#' "$SCRIPT_DIR/.env" | grep OPENAI_API_KEY | xargs)
+fi
 
 log "Starting quick-index..."
 TOTAL_INDEXED=0

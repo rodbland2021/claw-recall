@@ -30,8 +30,10 @@ NEW_FILES=$((CURRENT_COUNT - PREV_COUNT))
 # New archives found — run the indexer
 echo "[$(date -u '+%Y-%m-%d %H:%M:%S UTC')] Compaction detected: $NEW_FILES new archive file(s) (was $PREV_COUNT, now $CURRENT_COUNT) — triggering index" >> "$LOGFILE"
 
-# Source API key
-export OPENAI_API_KEY=$(grep OPENAI_API_KEY ~/.bashrc 2>/dev/null | head -1 | cut -d= -f2 | tr -d '"' | tr -d "'")
+# Use OPENAI_API_KEY from environment (set via systemd EnvironmentFile, .env, or export)
+if [ -z "$OPENAI_API_KEY" ] && [ -f "$RECALL_DIR/.env" ]; then
+    export $(grep -v '^#' "$RECALL_DIR/.env" | grep OPENAI_API_KEY | xargs)
+fi
 
 if [ -z "$OPENAI_API_KEY" ]; then
     echo "[$(date -u '+%Y-%m-%d %H:%M:%S UTC')] ERROR: OPENAI_API_KEY not found" >> "$LOGFILE"

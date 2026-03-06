@@ -1,4 +1,7 @@
 #!/bin/bash
-# Quick wrapper — sources API key and runs claw-recall
-export OPENAI_API_KEY="$(grep OPENAI_API_KEY ~/.bashrc | cut -d'"' -f2)"
-cd "$(dirname "$0")" && python3 claw-recall "$@"
+# Quick wrapper — sources API key from .env and runs claw-recall
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [ -z "$OPENAI_API_KEY" ] && [ -f "$SCRIPT_DIR/.env" ]; then
+    export $(grep -v '^#' "$SCRIPT_DIR/.env" | grep OPENAI_API_KEY | xargs)
+fi
+cd "$SCRIPT_DIR" && python3 claw-recall "$@"
