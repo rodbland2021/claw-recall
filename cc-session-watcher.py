@@ -2,9 +2,9 @@
 """
 Claw Recall — WSL Session Watcher
 
-Runs on Rod's WSL desktop. Monitors Claude Code and Claude (OpenClaw)
-session files for changes and pushes them to the VPS for indexing via
-an SSH-tunneled HTTP endpoint.
+Runs on a remote machine (e.g. desktop/laptop). Monitors Claude Code and
+OpenClaw session files for changes and pushes them to the server for
+indexing via an SSH-tunneled HTTP endpoint.
 
 Usage:
     python3 cc-session-watcher.py             # Run in foreground

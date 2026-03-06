@@ -251,7 +251,7 @@ def unified_search(
             )
             return [
                 {
-                    "path": r.path.replace('/home/clawdbot/', '~/'),
+                    "path": r.path.replace(str(Path.home()) + '/', '~/'),
                     "agent": r.agent,
                     "line_num": r.line_num,
                     "line": r.line[:300],

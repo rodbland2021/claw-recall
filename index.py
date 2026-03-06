@@ -111,14 +111,16 @@ def extract_session_metadata(filepath: Path) -> dict:
     # === PHASE 1: Path-based detection (most reliable) ===
     # Specific archive dirs checked BEFORE the generic archive pattern
 
-    # WSL detection: /home/rodbland/ = WSL machine, 'main' agent = Claude (not Kit)
-    is_wsl = '/home/rodbland/' in path_str
+    # Remote machine detection: files pushed from a remote machine have a different home path.
+    # Set CLAW_RECALL_REMOTE_HOME to the remote user's home dir (e.g. "/home/alice/")
+    _remote_home = os.environ.get('CLAW_RECALL_REMOTE_HOME', '')
+    is_remote = bool(_remote_home) and _remote_home in path_str
 
     # Pattern: /agents/{agent_name}/sessions/{file}.jsonl (active sessions)
     agents_match = re.search(r'/agents/([^/]+)/sessions/', path_str)
     if agents_match:
         raw = agents_match.group(1)
-        if is_wsl and raw == 'main':
+        if is_remote and raw == 'main':
             metadata['agent_id'] = 'Claude'
         else:
             metadata['agent_id'] = _normalize_agent_id(raw)
@@ -161,11 +163,11 @@ def extract_session_metadata(filepath: Path) -> dict:
             metadata['channel'] = 'direct'
 
     # Pattern: .claude/projects/ (Claude Code sessions)
-    # /home/clawdbot/.claude/projects/ = CC-VPS (Claude Code on VPS)
-    # /home/rodbland/.claude/projects/ = CC (Claude Code on WSL)
+    # Local .claude/projects/ = CC-Local, remote .claude/projects/ = CC
     if metadata['agent_id'] == 'unknown':
         if '.claude/projects' in path_str:
-            if '/home/clawdbot/' in path_str:
+            _local_home = str(Path.home())
+            if _local_home in path_str:
                 metadata['agent_id'] = 'CC-VPS'
             else:
                 metadata['agent_id'] = 'CC'
@@ -192,9 +194,9 @@ def extract_session_metadata(filepath: Path) -> dict:
         raw_agent = parts[1]
         if metadata['agent_id'] == 'unknown' or metadata['agent_id'] in ('Kit', 'Claude'):
             # Filename agent overrides only if it's a known agent and path gave us a generic answer
-            # BUT: on WSL, 'main' = Claude, not Kit — don't let filename override back
+            # BUT: on remote machine, 'main' = Claude, not Kit — don't let filename override back
             if raw_agent.lower() in KNOWN_AGENTS:
-                if is_wsl and raw_agent == 'main':
+                if is_remote and raw_agent == 'main':
                     metadata['agent_id'] = 'Claude'
                 else:
                     metadata['agent_id'] = _normalize_agent_id(raw_agent)
@@ -220,7 +222,7 @@ def extract_session_metadata(filepath: Path) -> dict:
     if metadata['agent_id'] == 'unknown' and parts:
         raw = parts[0].lower()
         if raw in KNOWN_AGENTS:
-            if is_wsl and raw == 'main':
+            if is_remote and raw == 'main':
                 metadata['agent_id'] = 'Claude'
             else:
                 metadata['agent_id'] = _normalize_agent_id(raw)

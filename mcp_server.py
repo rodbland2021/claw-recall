@@ -1,23 +1,24 @@
 #!/usr/bin/env python3
 """
-Claw Recall — MCP Server
+Claw Recall — MCP Server (stdio transport)
 
 FastMCP server exposing memory search and capture tools.
-Runs over stdio for use with Claude Desktop, Cursor, Claude Code.
+Runs over stdio for local MCP clients. For remote access, use mcp_server_sse.py.
 
 Usage:
     python3 mcp_server.py                    # stdio mode (for MCP clients)
-    ssh vps "cd ~/repos/claw-recall && python3 mcp_server.py"  # via SSH
 
-Claude Desktop config (~/.claude/claude_desktop_config.json):
+MCP client config (stdio):
     {
       "mcpServers": {
         "claw-recall": {
-          "command": "ssh",
-          "args": ["vps", "cd /home/clawdbot/repos/claw-recall && python3 mcp_server.py"]
+          "command": "python3",
+          "args": ["/path/to/claw-recall/mcp_server.py"]
         }
       }
     }
+
+For SSE/HTTP transport (remote agents), see mcp_server_sse.py.
 """
 
 import sys
@@ -30,10 +31,11 @@ sys.path.insert(0, str(Path(__file__).parent))
 from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("Claw Recall", instructions="""
-Claw Recall is Rod's AI memory system — 393K+ indexed conversation messages
-and captured thoughts across all agents (Kit, Cyrus, Claude, etc.).
+Claw Recall is a searchable AI memory system — indexed conversation messages
+and captured thoughts across all agents.
 
 Use search_memory for finding past conversations and thoughts.
+Use browse_recent to get full transcripts of recent conversations (no search query needed).
 Use capture_thought to save important information for future recall.
 """)
 
@@ -174,7 +176,7 @@ def browse_activity(
     """
     params = []
     if agent:
-        sql += " AND s.agent_id = ?"
+        sql += " AND s.agent_id = ? COLLATE NOCASE"
         params.append(agent)
     if days > 0:
         sql += " AND s.started_at >= datetime('now', ?)"

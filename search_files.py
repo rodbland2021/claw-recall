@@ -17,19 +17,20 @@ from functools import lru_cache
 _file_cache: Dict[str, Tuple[float, List[str]]] = {}
 _CACHE_MAX_ENTRIES = 500
 
-# Agent workspaces to search
-AGENT_DIRS = [
-    Path("/home/clawdbot/clawd"),
-    Path("/home/clawdbot/clawd-cyrus"),
-    Path("/home/clawdbot/clawd-arthur"),
-    Path("/home/clawdbot/clawd-damian"),
-    Path("/home/clawdbot/clawd-hale"),
-    Path("/home/clawdbot/clawd-roman"),
-    Path("/home/clawdbot/clawd-conrad"),
-    Path("/home/clawdbot/clawd-elara"),
-    Path("/home/clawdbot/clawd-sterling"),
-    Path("/home/clawdbot/shared"),
-]
+# Agent workspaces to search — configure via CLAW_RECALL_AGENT_DIRS env var
+# (colon-separated list of directories) or override AGENT_DIRS directly.
+_agent_dirs_env = os.environ.get("CLAW_RECALL_AGENT_DIRS", "")
+if _agent_dirs_env:
+    AGENT_DIRS = [Path(d.strip()) for d in _agent_dirs_env.split(":") if d.strip()]
+else:
+    # Default: search home directory for common agent workspace patterns
+    _home = Path.home()
+    AGENT_DIRS = [d for d in [
+        _home / "clawd",
+        _home / "shared",
+    ] if d.exists()]
+    # Also discover clawd-* agent directories
+    AGENT_DIRS.extend(sorted(d for d in _home.glob("clawd-*") if d.is_dir()))
 
 # Directories to skip
 SKIP_DIRS = {'.git', 'node_modules', '__pycache__', '.venv', 'venv', 'videos', 'tmp'}
@@ -115,12 +116,13 @@ def search_files(
     # Determine which directories to search
     search_dirs = AGENT_DIRS
     if agent:
+        _home = Path.home()
         if agent == 'main':
-            search_dirs = [Path("/home/clawdbot/clawd")]
+            search_dirs = [_home / "clawd"]
         elif agent == 'shared':
-            search_dirs = [Path("/home/clawdbot/shared")]
+            search_dirs = [_home / "shared"]
         else:
-            search_dirs = [Path(f"/home/clawdbot/clawd-{agent}")]
+            search_dirs = [_home / f"clawd-{agent}"]
     
     # Determine file patterns
     patterns = FILE_PATTERNS
@@ -217,7 +219,7 @@ def format_results(results: List[FileMatch], verbose: bool = False) -> str:
     output = []
     for i, r in enumerate(results, 1):
         # Shorten path for display
-        short_path = r.path.replace('/home/clawdbot/', '~/')
+        short_path = r.path.replace(str(Path.home()) + '/', '~/')
         
         output.append(f"\n{'='*60}")
         output.append(f"#{i} | Agent: {r.agent} | {short_path}:{r.line_num}")
@@ -252,7 +254,7 @@ def search_docs(query: str, agent: Optional[str] = None, limit: int = 10) -> Lis
     results = search_files(query, agent=agent, limit=limit)
     return [
         {
-            "path": r.path.replace('/home/clawdbot/', '~/'),
+            "path": r.path.replace(str(Path.home()) + '/', '~/'),
             "agent": r.agent,
             "line_num": r.line_num,
             "line": r.line[:500],
