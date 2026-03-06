@@ -20,7 +20,7 @@ recall -q "database schema migration" --agent atlas --days 2
 
 Claw Recall indexes all your agent conversations into a searchable SQLite database with full-text and semantic search. It also captures Gmail, Google Drive, and Slack — giving every agent access to a shared memory that survives compaction, restarts, and context limits.
 
-**[Quick Start](#quick-start)** | **[MCP Tools](#mcp-tools)** | **[CLI](#cli-reference)** | **[REST API](#rest-api)** | **[Data Ingestion](#data-ingestion)** | **[Search Modes](#search-modes)** | **[Configuration](#configuration)** | **[Production Deployment](#production-deployment)** | **[Testing](#testing)**
+**[Quick Start](#quick-start)** | **[How It Works](#how-it-works)** | **[MCP Tools](#mcp-tools)** | **[CLI](#cli-reference)** | **[REST API](#rest-api)** | **[Data Ingestion](#data-ingestion)** | **[Shared Knowledge](#building-shared-knowledge)** | **[Agent Names](#agent-names)** | **[Search Modes](#search-modes)** | **[Configuration](#configuration)** | **[Deployment](#production-deployment)** | **[Testing](#testing)** | **[Community](#community)** | **[Support](#support)**
 
 [Changelog](CHANGELOG.md) | [Discord](https://discord.gg/4wGTVa9Bt6) | [Contributing](CONTRIBUTING.md)
 
