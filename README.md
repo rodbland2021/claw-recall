@@ -694,7 +694,7 @@ If Claw Recall is useful to you, consider supporting its development:
 
 **Bitcoin:**
 ```
-bc1q98g7ny06nlyzjfj5drrjgzxd2tk0hj3gvk4z2y
+bc1q5ggxp0wrgcnn07hkjdhwqtxmsfejqh329djhqz
 ```
 
 ## License
