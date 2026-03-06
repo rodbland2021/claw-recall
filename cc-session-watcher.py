@@ -286,34 +286,34 @@ def push_file(filepath: Path, dry_run: bool = False) -> dict:
         log.info(f"[DRY RUN] Would push: {filepath} ({file_size:,} bytes)")
         return {"status": "dry_run"}
 
-    session = requests.Session()
-    for attempt in range(1, MAX_RETRIES + 1):
-        try:
-            with open(filepath, 'rb') as f:
-                response = session.post(
-                    VPS_ENDPOINT,
-                    files={'file': (filepath.name, f, 'application/x-jsonlines')},
-                    data={'source_path': str(filepath)},
-                    timeout=300,
-                )
+    with requests.Session() as session:
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                with open(filepath, 'rb') as f:
+                    response = session.post(
+                        VPS_ENDPOINT,
+                        files={'file': (filepath.name, f, 'application/x-jsonlines')},
+                        data={'source_path': str(filepath)},
+                        timeout=300,
+                    )
 
-            if response.status_code == 200:
-                result = response.json()
-                return result
-            else:
-                log.warning(f"Push failed ({response.status_code}): {response.text[:200]}")
+                if response.status_code == 200:
+                    result = response.json()
+                    return result
+                else:
+                    log.warning(f"Push failed ({response.status_code}): {response.text[:200]}")
 
-        except requests.ConnectionError:
-            log.warning(f"VPS unreachable (attempt {attempt}/{MAX_RETRIES})")
-        except requests.Timeout:
-            log.warning(f"Push timed out (attempt {attempt}/{MAX_RETRIES})")
-        except Exception as e:
-            log.error(f"Push error: {e}")
+            except requests.ConnectionError:
+                log.warning(f"VPS unreachable (attempt {attempt}/{MAX_RETRIES})")
+            except requests.Timeout:
+                log.warning(f"Push timed out (attempt {attempt}/{MAX_RETRIES})")
+            except Exception as e:
+                log.error(f"Push error: {e}")
 
-        if attempt < MAX_RETRIES:
-            delay = RETRY_BASE_DELAY * attempt
-            log.info(f"Retrying in {delay}s...")
-            time.sleep(delay)
+            if attempt < MAX_RETRIES:
+                delay = RETRY_BASE_DELAY * attempt
+                log.info(f"Retrying in {delay}s...")
+                time.sleep(delay)
 
     return {"status": "error", "reason": "max_retries_exceeded"}
 

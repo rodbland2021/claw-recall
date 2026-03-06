@@ -57,6 +57,15 @@ class IndexWorker(threading.Thread):
         self._conn = None
         self.stats = {"indexed": 0, "skipped": 0, "errors": 0, "retries": 0}
 
+    def close(self):
+        """Close the persistent DB connection (call from main thread on shutdown)."""
+        if self._conn:
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+            self._conn = None
+
     def _get_conn(self):
         if self._conn is None:
             self._conn = sqlite3.connect(str(DB_PATH), timeout=BUSY_TIMEOUT_MS / 1000)
@@ -175,6 +184,7 @@ def main():
             log.info(f"Stats: indexed={s['indexed']} skipped={s['skipped']} retries={s['retries']} errors={s['errors']}")
     except KeyboardInterrupt:
         observer.stop()
+        worker.close()
         log.info(f"Watcher stopped. Stats: {worker.stats}")
 
     observer.join()
