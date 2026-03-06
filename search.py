@@ -14,15 +14,14 @@ from datetime import datetime, timedelta
 from typing import Optional, List
 from dataclasses import dataclass
 
+from db import get_db, DB_PATH, EMBEDDING_MODEL, EMBEDDING_DIM
+
 # Optional: OpenAI for semantic search
 try:
     from openai import OpenAI
     OPENAI_AVAILABLE = True
 except ImportError:
     OPENAI_AVAILABLE = False
-
-DB_PATH = Path(__file__).parent / "convo_memory.db"
-EMBEDDING_MODEL = "text-embedding-3-small"
 
 # Agent name mapping — translates raw OpenClaw slot IDs to display names stored in DB.
 # Loaded from agents.json (shared with index.py). Agents can query with either form.
@@ -295,8 +294,7 @@ def _build_embedding_cache(conn: sqlite3.Connection, agent=None, channel=None,
         return
 
     # Pre-allocate numpy array — avoids the 3-copy peak from fetchall + list + vstack
-    EMB_DIM = 1536  # text-embedding-3-small
-    matrix = np.empty((n_rows, EMB_DIM), dtype=np.float32)
+    matrix = np.empty((n_rows, EMBEDDING_DIM), dtype=np.float32)
     msg_ids = np.empty(n_rows, dtype=np.int64)
     metadata = []  # (message_id, session_id, agent_id, channel, role, timestamp) — NO content
 
@@ -603,20 +601,16 @@ def search_thoughts(
     """Search captured thoughts. High-level API."""
     if not db_path.exists():
         return []
-    conn = sqlite3.connect(str(db_path))
-    conn.execute("PRAGMA journal_mode=WAL")
 
-    openai_client = None
-    if semantic and OPENAI_AVAILABLE:
-        openai_client = OpenAI()
+    with get_db(db_path) as conn:
+        openai_client = None
+        if semantic and OPENAI_AVAILABLE:
+            openai_client = OpenAI()
 
-    if semantic:
-        results = semantic_search_thoughts(conn, query, agent, source, days, limit, openai_client)
-    else:
-        results = keyword_search_thoughts(conn, query, agent, source, days, limit)
-
-    conn.close()
-    return results
+        if semantic:
+            return semantic_search_thoughts(conn, query, agent, source, days, limit, openai_client)
+        else:
+            return keyword_search_thoughts(conn, query, agent, source, days, limit)
 
 
 # Python API for agents
@@ -651,19 +645,15 @@ def search_conversations(
     if not db_path.exists():
         raise FileNotFoundError(f"Database not found: {db_path}")
 
-    conn = sqlite3.connect(db_path)
+    with get_db(db_path) as conn:
+        openai_client = None
+        if semantic and OPENAI_AVAILABLE:
+            openai_client = OpenAI()
 
-    openai_client = None
-    if semantic and OPENAI_AVAILABLE:
-        openai_client = OpenAI()
-
-    if semantic:
-        results = semantic_search(conn, query, agent, channel, days, limit, openai_client, date_from=date_from, date_to=date_to)
-    else:
-        results = keyword_search(conn, query, agent, channel, days, limit, date_from=date_from, date_to=date_to)
-
-    conn.close()
-    return results
+        if semantic:
+            return semantic_search(conn, query, agent, channel, days, limit, openai_client, date_from=date_from, date_to=date_to)
+        else:
+            return keyword_search(conn, query, agent, channel, days, limit, date_from=date_from, date_to=date_to)
 
 
 def preload_embedding_cache():
@@ -679,12 +669,10 @@ def preload_embedding_cache():
         global _preload_in_progress
         _preload_in_progress = True
         try:
-            conn = sqlite3.connect(str(DB_PATH))
-            conn.execute("PRAGMA journal_mode=WAL")
-            with _embedding_lock:
-                _build_embedding_cache(conn)
-                rows = _embedding_cache.get("matrix")
-            conn.close()
+            with get_db() as conn:
+                with _embedding_lock:
+                    _build_embedding_cache(conn)
+                    rows = _embedding_cache.get("matrix")
             if rows is not None:
                 print(f"[search] Embedding cache preloaded: {rows.shape[0]} embeddings")
             else:

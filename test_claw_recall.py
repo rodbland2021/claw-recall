@@ -47,10 +47,10 @@ def test_db(tmp_path):
 
 @pytest.fixture
 def patched_db(test_db, monkeypatch):
-    """Patch capture module to use the test database."""
+    """Patch db module to use the test database."""
     conn, db_path = test_db
-    import capture
-    monkeypatch.setattr(capture, 'DB_PATH', db_path)
+    import db as db_module
+    monkeypatch.setattr(db_module, 'DB_PATH', db_path)
     return conn, db_path
 
 
@@ -583,12 +583,12 @@ class TestCaptureSources:
 
         # Also mock OpenAI for batch embedding
         import capture
+        import db as db_module
         monkeypatch.setattr(capture, 'OPENAI_AVAILABLE', False)
         monkeypatch.setattr(capture, '_openai_client', None)
-        monkeypatch.setattr(capture, 'DB_PATH', db_path)
+        monkeypatch.setattr(db_module, 'DB_PATH', db_path)
 
         import capture_sources
-        monkeypatch.setattr(capture_sources, 'DB_PATH', db_path)
 
         try:
             # Force reimport to pick up mocked email_helper
@@ -657,12 +657,12 @@ class TestCaptureSources:
         sys.modules['google_helper'] = mock_module
 
         import capture
+        import db as db_module
         monkeypatch.setattr(capture, 'OPENAI_AVAILABLE', False)
         monkeypatch.setattr(capture, '_openai_client', None)
-        monkeypatch.setattr(capture, 'DB_PATH', db_path)
+        monkeypatch.setattr(db_module, 'DB_PATH', db_path)
 
         import capture_sources
-        monkeypatch.setattr(capture_sources, 'DB_PATH', db_path)
 
         try:
             result = capture_sources.poll_drive(account='personal', limit=10)
@@ -688,10 +688,6 @@ class TestCaptureSources:
         """Test Slack polling with no token configured."""
         conn, db_path = patched_db
         import capture_sources as cs
-        import capture
-
-        monkeypatch.setattr(capture, 'DB_PATH', db_path)
-        monkeypatch.setattr(cs, 'DB_PATH', db_path)
         # Force empty token — bypass _get_slack_token reading config
         monkeypatch.setattr(cs, '_get_slack_token', lambda: '')
 
@@ -705,10 +701,8 @@ class TestCaptureSources:
         import capture
         monkeypatch.setattr(capture, 'OPENAI_AVAILABLE', False)
         monkeypatch.setattr(capture, '_openai_client', None)
-        monkeypatch.setattr(capture, 'DB_PATH', db_path)
 
         import capture_sources as cs
-        monkeypatch.setattr(cs, 'DB_PATH', db_path)
         monkeypatch.setattr(cs, '_get_slack_token', lambda: 'xoxb-test-token')
 
         # Mock slack_sdk
@@ -755,10 +749,9 @@ class TestCaptureSources:
         conn, db_path = test_db
         from capture_sources import _log_capture
 
+        import db as db_module
+        monkeypatch.setattr(db_module, 'DB_PATH', db_path)
         import capture_sources as cs
-        import capture as cap
-        monkeypatch.setattr(cs, 'DB_PATH', db_path)
-        monkeypatch.setattr(cap, 'DB_PATH', db_path)
 
         _log_capture(conn, 'gmail', 'msg1', 'personal', 1)
         _log_capture(conn, 'gmail', 'msg2', 'rbs', 2)
@@ -1096,11 +1089,8 @@ class TestIndexSessionEndpoint:
     def client(self, test_db, monkeypatch):
         conn, db_path = test_db
         import web
-        import search
-        import index as idx_mod
-        monkeypatch.setattr(search, 'DB_PATH', db_path)
-        monkeypatch.setattr(idx_mod, 'DB_PATH', db_path)
-        monkeypatch.setattr(web, 'DB_PATH', db_path)  # web imports DB_PATH at module level
+        import db as db_module
+        monkeypatch.setattr(db_module, 'DB_PATH', db_path)
         web.app.config['TESTING'] = True
         return web.app.test_client()
 
@@ -1266,15 +1256,9 @@ class TestBrowseRecent:
     def client(self, populated_db, monkeypatch):
         conn, db_path = populated_db
         import web
-        import search
-        monkeypatch.setattr(search, 'DB_PATH', db_path)
+        import db as db_module
+        monkeypatch.setattr(db_module, 'DB_PATH', db_path)
         web.app.config['TESTING'] = True
-        # Patch _get_db to use our test db
-        def _get_test_db():
-            c = sqlite3.connect(str(db_path))
-            c.execute("PRAGMA journal_mode=WAL")
-            return c
-        monkeypatch.setattr(web, '_get_db', _get_test_db)
         return web.app.test_client()
 
     def test_recent_returns_messages(self, client):
@@ -1345,8 +1329,8 @@ class TestBrowseRecent:
     def test_browse_recent_mcp_tool(self, populated_db, monkeypatch):
         """Test the MCP tool function directly."""
         conn, db_path = populated_db
-        import search
-        monkeypatch.setattr(search, 'DB_PATH', db_path)
+        import db as db_module
+        monkeypatch.setattr(db_module, 'DB_PATH', db_path)
         import mcp_server
         result = mcp_server.browse_recent(minutes=30)
         assert "Recent Transcript" in result
@@ -1356,8 +1340,8 @@ class TestBrowseRecent:
 
     def test_browse_recent_mcp_agent_filter(self, populated_db, monkeypatch):
         conn, db_path = populated_db
-        import search
-        monkeypatch.setattr(search, 'DB_PATH', db_path)
+        import db as db_module
+        monkeypatch.setattr(db_module, 'DB_PATH', db_path)
         import mcp_server
         result = mcp_server.browse_recent(agent="atlas", minutes=30)
         assert "atlas" in result
@@ -1365,8 +1349,8 @@ class TestBrowseRecent:
 
     def test_browse_recent_mcp_no_results(self, populated_db, monkeypatch):
         conn, db_path = populated_db
-        import search
-        monkeypatch.setattr(search, 'DB_PATH', db_path)
+        import db as db_module
+        monkeypatch.setattr(db_module, 'DB_PATH', db_path)
         import mcp_server
         result = mcp_server.browse_recent(agent="nonexistent", minutes=30)
         assert "No messages found" in result
@@ -1415,6 +1399,263 @@ class TestWatcherHelpers:
         assert self.watcher._should_handle("/path/to/session.json") is False
         assert self.watcher._should_handle("/path/subagents/agent.jsonl") is False
         assert self.watcher._should_handle("/path/.deleted.session.jsonl") is False
+
+
+class TestDBContextManager:
+    """Test the shared db.py context manager."""
+
+    def test_get_db_returns_connection(self, tmp_path):
+        from db import get_db
+        db_path = tmp_path / "test.db"
+        with get_db(db_path) as conn:
+            conn.execute("CREATE TABLE test (id INTEGER)")
+            conn.execute("INSERT INTO test VALUES (1)")
+            conn.commit()
+            assert conn.execute("SELECT COUNT(*) FROM test").fetchone()[0] == 1
+
+    def test_get_db_closes_on_exit(self, tmp_path):
+        from db import get_db
+        db_path = tmp_path / "test.db"
+        with get_db(db_path) as conn:
+            conn.execute("CREATE TABLE test (id INTEGER)")
+            conn.commit()
+        # Connection should be closed — executing should raise
+        with pytest.raises(Exception):
+            conn.execute("SELECT 1")
+
+    def test_get_db_closes_on_exception(self, tmp_path):
+        from db import get_db
+        db_path = tmp_path / "test.db"
+        captured_conn = None
+        try:
+            with get_db(db_path) as conn:
+                captured_conn = conn
+                raise ValueError("test error")
+        except ValueError:
+            pass
+        with pytest.raises(Exception):
+            captured_conn.execute("SELECT 1")
+
+    def test_get_db_wal_mode(self, tmp_path):
+        from db import get_db
+        db_path = tmp_path / "test.db"
+        with get_db(db_path) as conn:
+            mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
+            assert mode == "wal"
+
+    def test_get_db_custom_busy_timeout(self, tmp_path):
+        from db import get_db
+        db_path = tmp_path / "test.db"
+        with get_db(db_path, busy_timeout=5000) as conn:
+            timeout = conn.execute("PRAGMA busy_timeout").fetchone()[0]
+            assert timeout == 5000
+
+
+class TestWebEndpoints:
+    """Test web.py HTTP endpoints."""
+
+    @pytest.fixture
+    def populated_db(self, test_db):
+        conn, db_path = test_db
+        now = datetime.now()
+
+        # Insert sessions
+        conn.execute("INSERT INTO sessions (id, agent_id, started_at, message_count) VALUES (?, ?, ?, ?)",
+                     ("sess1", "butler", now.isoformat(), 5))
+        conn.execute("INSERT INTO sessions (id, agent_id, started_at, message_count) VALUES (?, ?, ?, ?)",
+                     ("sess2", "atlas", now.isoformat(), 3))
+
+        # Insert messages for sess1
+        for i, (role, content) in enumerate([
+            ("user", "Hello butler"),
+            ("assistant", "Hi! How can I help?"),
+            ("user", "Check my email"),
+            ("assistant", "Sure, checking now..."),
+            ("assistant", "You have 3 new emails"),
+        ]):
+            conn.execute(
+                "INSERT INTO messages (session_id, role, content, timestamp, message_index) VALUES (?,?,?,?,?)",
+                ("sess1", role, content, now.isoformat(), i)
+            )
+
+        # Insert messages for sess2
+        for i, (role, content) in enumerate([
+            ("user", "Search for documents"),
+            ("assistant", "Found 5 documents"),
+            ("user", "Show me the first one"),
+        ]):
+            conn.execute(
+                "INSERT INTO messages (session_id, role, content, timestamp, message_index) VALUES (?,?,?,?,?)",
+                ("sess2", role, content, now.isoformat(), i)
+            )
+
+        conn.commit()
+        return conn, db_path
+
+    @pytest.fixture
+    def client(self, populated_db, monkeypatch):
+        conn, db_path = populated_db
+        import web
+        import db as db_module
+        monkeypatch.setattr(db_module, 'DB_PATH', db_path)
+        web.app.config['TESTING'] = True
+        return web.app.test_client()
+
+    def test_health_endpoint(self, client):
+        response = client.get('/health')
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data['status'] == 'ok'
+        assert data['db']['connected'] is True
+        assert data['db']['sessions'] == 2
+        assert data['db']['embeddings'] == 0
+
+    def test_status_endpoint(self, client):
+        response = client.get('/status')
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data['db_messages'] == 8
+        assert data['db_sessions'] == 2
+
+    def test_agents_endpoint(self, client):
+        response = client.get('/agents?days=0')
+        assert response.status_code == 200
+        data = response.get_json()
+        assert 'butler' in data
+        assert 'atlas' in data
+
+    def test_context_endpoint(self, client, populated_db):
+        conn, _ = populated_db
+        msg_id = conn.execute(
+            "SELECT id FROM messages WHERE session_id = 'sess1' AND message_index = 2"
+        ).fetchone()[0]
+        response = client.get(f'/context?session_id=sess1&message_id={msg_id}&radius=2')
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data['session_id'] == 'sess1'
+        assert len(data['messages']) > 0
+        assert any(m['is_match'] for m in data['messages'])
+
+    def test_context_missing_params(self, client):
+        response = client.get('/context')
+        assert response.status_code == 400
+
+    def test_activity_endpoint(self, client):
+        response = client.get('/activity?days=0')
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data['total'] == 2
+        assert len(data['sessions']) == 2
+        assert 'agent_counts' in data
+
+    def test_activity_agent_filter(self, client):
+        response = client.get('/activity?days=0&agent=butler')
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data['total'] == 1
+        assert data['sessions'][0]['agent'] == 'butler'
+
+    def test_session_endpoint(self, client):
+        response = client.get('/session?session_id=sess1')
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data['session_id'] == 'sess1'
+        assert data['agent'] == 'butler'
+        assert len(data['messages']) == 5
+
+    def test_session_windowed(self, client):
+        response = client.get('/session?session_id=sess1&around=2&window=4')
+        assert response.status_code == 200
+        data = response.get_json()
+        assert len(data['messages']) <= 5  # window of 4 around index 2
+
+    def test_session_not_found(self, client):
+        response = client.get('/session?session_id=nonexistent')
+        data = response.get_json()
+        assert 'error' in data
+
+    def test_session_missing_id(self, client):
+        response = client.get('/session')
+        assert response.status_code == 400
+
+
+class TestDeepLink:
+    """Test generate_deep_link() helper."""
+
+    def test_discord_deep_link(self):
+        from web import generate_deep_link
+        content = "[Discord channel id:123456789] [message_id: 987654321] Hello world"
+        link = generate_deep_link(content)
+        assert link == "https://discord.com/channels/@me/123456789/987654321"
+
+    def test_no_message_id(self):
+        from web import generate_deep_link
+        assert generate_deep_link("just some text") is None
+
+    def test_message_id_without_platform(self):
+        from web import generate_deep_link
+        assert generate_deep_link("[message_id: 12345] hello") is None
+
+
+class TestSafeInt:
+    """Test _safe_int() helper."""
+
+    def test_valid_int(self):
+        from web import _safe_int
+        assert _safe_int("42", 0) == 42
+
+    def test_default_on_invalid(self):
+        from web import _safe_int
+        assert _safe_int("abc", 10) == 10
+        assert _safe_int(None, 5) == 5
+
+    def test_lo_clamp(self):
+        from web import _safe_int
+        assert _safe_int("-5", 0, lo=0) == 0
+
+    def test_hi_clamp(self):
+        from web import _safe_int
+        assert _safe_int("999", 0, hi=100) == 100
+
+    def test_both_clamps(self):
+        from web import _safe_int
+        assert _safe_int("50", 0, lo=10, hi=100) == 50
+        assert _safe_int("5", 0, lo=10, hi=100) == 10
+        assert _safe_int("200", 0, lo=10, hi=100) == 100
+
+
+class TestCaptureEndpoint:
+    """Test /capture HTTP endpoint."""
+
+    @pytest.fixture
+    def client(self, test_db, monkeypatch):
+        conn, db_path = test_db
+        import web
+        import db as db_module
+        import capture
+        monkeypatch.setattr(db_module, 'DB_PATH', db_path)
+        monkeypatch.setattr(capture, 'OPENAI_AVAILABLE', False)
+        web.app.config['TESTING'] = True
+        return web.app.test_client()
+
+    def test_capture_via_http(self, client):
+        response = client.post('/capture', json={
+            'content': 'Test thought from HTTP',
+            'source': 'http',
+            'agent': 'test-agent',
+        })
+        assert response.status_code == 201
+        data = response.get_json()
+        assert data['id'] > 0
+        assert data['source'] == 'http'
+
+    def test_capture_empty_content(self, client):
+        response = client.post('/capture', json={'content': ''})
+        assert response.status_code == 400
+
+    def test_capture_missing_content(self, client):
+        response = client.post('/capture', json={})
+        assert response.status_code == 400
 
 
 if __name__ == "__main__":

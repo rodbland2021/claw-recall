@@ -30,7 +30,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 SCRIPTS_DIR = Path.home() / "clawd" / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from capture import capture_thought, batch_embed_thoughts, _get_db, DB_PATH
+from capture import capture_thought, batch_embed_thoughts
+from db import get_db, DB_PATH
 
 logging.basicConfig(
     level=logging.INFO,
@@ -266,8 +267,7 @@ def poll_gmail(account: str = None, limit: int = GMAIL_POLL_LIMIT,
     stats = {"captured": 0, "skipped": 0, "filtered": 0, "errors": 0, "accounts": accounts}
     new_thought_ids = []
 
-    conn = _get_db()
-    try:
+    with get_db() as conn:
         for acct in accounts:
             try:
                 # Scan both inbox and sent mail
@@ -360,8 +360,6 @@ def poll_gmail(account: str = None, limit: int = GMAIL_POLL_LIMIT,
         if new_thought_ids:
             embed_result = batch_embed_thoughts(new_thought_ids, conn=conn)
             log.info(f"Batch embedded {embed_result.get('embedded', 0)} Gmail thoughts")
-    finally:
-        conn.close()
 
     return stats
 
@@ -404,8 +402,7 @@ def poll_drive(account: str = None, limit: int = DRIVE_POLL_LIMIT,
         'application/vnd.ms-excel.sheet.macroenabled.12',  # .xlsm
     }
 
-    conn = _get_db()
-    try:
+    with get_db() as conn:
         for acct in accounts:
             try:
                 drive_svc = get_service(acct, 'drive', 'v3')
@@ -549,8 +546,6 @@ def poll_drive(account: str = None, limit: int = DRIVE_POLL_LIMIT,
         if new_thought_ids:
             embed_result = batch_embed_thoughts(new_thought_ids, conn=conn)
             log.info(f"Batch embedded {embed_result.get('embedded', 0)} Drive thoughts")
-    finally:
-        conn.close()
 
     return stats
 
@@ -600,8 +595,7 @@ def poll_slack(limit: int = 50) -> dict:
     stats = {"captured": 0, "skipped": 0, "errors": 0, "channels": 0}
     new_thought_ids = []
 
-    conn = _get_db()
-    try:
+    with get_db() as conn:
         # Get list of channels/DMs — query each type separately for reliability
         try:
             channels = []
@@ -706,12 +700,6 @@ def poll_slack(limit: int = 50) -> dict:
             embed_result = batch_embed_thoughts(new_thought_ids, conn=conn)
             log.info(f"Batch embedded {embed_result.get('embedded', 0)} Slack thoughts")
 
-    except Exception as e:
-        log.error(f"Slack error: {e}")
-        stats["errors"] += 1
-    finally:
-        conn.close()
-
     return stats
 
 
@@ -745,8 +733,7 @@ def backfill_gmail(account: str = None, days: int = 90,
     cutoff = datetime.now() - timedelta(days=days)
     after_str = cutoff.strftime('%Y/%m/%d')
 
-    conn = _get_db()
-    try:
+    with get_db() as conn:
         for acct in accounts:
             try:
                 service, _ = get_gmail_service(acct)
@@ -870,9 +857,6 @@ def backfill_gmail(account: str = None, days: int = 90,
             embed_result = batch_embed_thoughts(new_thought_ids, conn=conn)
             log.info(f"Final batch embedded {embed_result.get('embedded', 0)} thoughts")
 
-    finally:
-        conn.close()
-
     return stats
 
 
@@ -914,8 +898,7 @@ def backfill_drive(account: str = None, days: int = None,
         'application/vnd.ms-excel.sheet.macroenabled.12',
     }
 
-    conn = _get_db()
-    try:
+    with get_db() as conn:
         for acct in accounts:
             try:
                 drive_svc = get_service(acct, 'drive', 'v3')
@@ -1087,9 +1070,6 @@ def backfill_drive(account: str = None, days: int = None,
             embed_result = batch_embed_thoughts(new_thought_ids, conn=conn)
             log.info(f"Final batch embedded {embed_result.get('embedded', 0)} thoughts")
 
-    finally:
-        conn.close()
-
     return stats
 
 
@@ -1108,9 +1088,7 @@ def cleanup_gmail_noise(dry_run: bool = True) -> dict:
     Returns:
         {total_gmail: int, noise: int, deleted: int, examples: [...]}
     """
-    conn = _get_db()
-    conn.execute("PRAGMA busy_timeout = 30000")  # Wait up to 30s for locks
-    try:
+    with get_db() as conn:
         # Find all Gmail thoughts with their metadata
         rows = conn.execute(
             "SELECT id, content, metadata FROM thoughts WHERE source = 'gmail'"
@@ -1175,8 +1153,6 @@ def cleanup_gmail_noise(dry_run: bool = True) -> dict:
                      f"out of {stats['total_gmail']} total")
 
         return stats
-    finally:
-        conn.close()
 
 
 def cleanup_drive_noise(dry_run: bool = True) -> dict:
@@ -1192,9 +1168,7 @@ def cleanup_drive_noise(dry_run: bool = True) -> dict:
     Returns:
         {total_drive: int, noise: int, deleted: int, kept: int, examples: [...]}
     """
-    conn = _get_db()
-    conn.execute("PRAGMA busy_timeout = 30000")
-    try:
+    with get_db() as conn:
         rows = conn.execute(
             "SELECT id, content, metadata FROM thoughts WHERE source = 'drive'"
         ).fetchall()
@@ -1253,16 +1227,13 @@ def cleanup_drive_noise(dry_run: bool = True) -> dict:
                      f"out of {stats['total_drive']} total")
 
         return stats
-    finally:
-        conn.close()
 
 
 # ─── Status & Stats ───────────────────────────────────────────────────────────
 
 def capture_status() -> dict:
     """Get capture statistics from the log."""
-    conn = _get_db()
-    try:
+    with get_db() as conn:
         stats = {}
         rows = conn.execute(
             "SELECT source_type, account, COUNT(*) FROM capture_log GROUP BY source_type, account"
@@ -1281,8 +1252,6 @@ def capture_status() -> dict:
         }
 
         return stats
-    finally:
-        conn.close()
 
 
 # ─── CLI ──────────────────────────────────────────────────────────────────────

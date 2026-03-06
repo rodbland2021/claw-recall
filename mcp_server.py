@@ -163,11 +163,8 @@ def browse_activity(
         days: How many days back to look
         limit: Max sessions to return
     """
-    import sqlite3
-    from search import DB_PATH
+    from db import get_db
 
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.execute("PRAGMA journal_mode=WAL")
     agent = _resolve_agent(agent) if agent else agent
 
     sql = """
@@ -189,8 +186,8 @@ def browse_activity(
     sql += " ORDER BY s.started_at DESC LIMIT ?"
     params.append(limit)
 
-    rows = conn.execute(sql, params).fetchall()
-    conn.close()
+    with get_db() as conn:
+        rows = conn.execute(sql, params).fetchall()
 
     if not rows:
         return "No recent activity found."
@@ -217,14 +214,10 @@ def browse_recent(
         agent: Filter by agent name (kit, cyrus, claude, cc, etc.). Empty = all agents.
         minutes: How many minutes back to look (default 30, max 120)
     """
-    import sqlite3
-    from search import DB_PATH
+    from db import get_db
 
     minutes = max(1, min(minutes, 120))
     agent = _resolve_agent(agent) if agent else agent
-
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.execute("PRAGMA journal_mode=WAL")
 
     sql = """
         SELECT s.agent_id, s.id as session_id, m.role, m.content, m.timestamp, m.message_index, s.message_count
@@ -243,8 +236,8 @@ def browse_recent(
         params.append(agent)
     sql += " ORDER BY m.timestamp ASC, m.message_index ASC LIMIT 500"
 
-    rows = conn.execute(sql, params).fetchall()
-    conn.close()
+    with get_db() as conn:
+        rows = conn.execute(sql, params).fetchall()
 
     if not rows:
         return f"No messages found in the last {minutes} minutes."

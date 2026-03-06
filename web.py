@@ -12,16 +12,10 @@ import logging
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+from db import get_db, DB_PATH
 from recall import unified_search
-from search import DB_PATH, cache_status, preload_embedding_cache, _resolve_agent
+from search import cache_status, preload_embedding_cache, _resolve_agent
 import re
-
-
-def _get_db() -> sqlite3.Connection:
-    """Open a WAL-mode connection to the convo_memory database."""
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.execute("PRAGMA journal_mode=WAL")
-    return conn
 
 # Shared SQL filter for valid agent sessions (excludes hex IDs, internal, noise)
 VALID_AGENT_FILTER = """
@@ -92,8 +86,7 @@ def status_endpoint():
     """Observability endpoint: embedding cache state + DB stats."""
     info = cache_status()
     try:
-        conn = _get_db()
-        try:
+        with get_db() as conn:
             info["db_messages"] = conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
             info["db_embeddings"] = conn.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0]
             info["db_sessions"] = conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
@@ -102,8 +95,6 @@ def status_endpoint():
                 info["db_thought_embeddings"] = conn.execute("SELECT COUNT(*) FROM thought_embeddings").fetchone()[0]
             except Exception:
                 info["db_thoughts"] = 0
-        finally:
-            conn.close()
     except Exception as e:
         info["db_error"] = str(e)
     return jsonify(info)
@@ -113,15 +104,12 @@ def status_endpoint():
 def health_endpoint():
     """Health check endpoint for monitoring and orchestration."""
     try:
-        conn = _get_db()
-        try:
+        with get_db() as conn:
             sessions = conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
             embeddings = conn.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0]
             last_indexed = conn.execute(
                 "SELECT MAX(started_at) FROM sessions"
             ).fetchone()[0]
-        finally:
-            conn.close()
         return jsonify({
             "status": "ok",
             "db": {"connected": True, "sessions": sessions, "embeddings": embeddings},
@@ -138,8 +126,7 @@ def agents_endpoint():
     """Return list of agents with session counts (for dynamic pills/dropdown)."""
     days = _safe_int(request.args.get('days', '14'), 14, lo=0)
     try:
-        conn = _get_db()
-        try:
+        with get_db() as conn:
             sql = f"""
                 SELECT s.agent_id as norm_agent,
                        COUNT(*) as cnt
@@ -153,8 +140,6 @@ def agents_endpoint():
             sql += " GROUP BY norm_agent ORDER BY cnt DESC"
             rows = conn.execute(sql, params).fetchall()
             return jsonify({agent: count for agent, count in rows})
-        finally:
-            conn.close()
     except Exception as e:
         return jsonify({"error": "Internal error"}), 500
 
@@ -261,9 +246,7 @@ def index_session_endpoint():
         uploaded.save(str(temp_filepath))
 
         from index import index_session_file
-        conn = _get_db()
-        conn.execute("PRAGMA busy_timeout=30000")
-        try:
+        with get_db() as conn:
             result = index_session_file(
                 temp_filepath, conn,
                 generate_embeds=False,
@@ -272,8 +255,6 @@ def index_session_endpoint():
             log.info(f"index-session: {filename} -> {result.get('status')} "
                      f"({result.get('messages', 0)} msgs, agent={result.get('agent', '?')})")
             return jsonify(result), 200
-        finally:
-            conn.close()
     except Exception as e:
         log.error(f"index-session error for {filename}: {e}")
         return jsonify({"error": "Internal error"}), 500
@@ -310,9 +291,7 @@ def index_local_endpoint():
 
     try:
         from index import index_session_file
-        conn = _get_db()
-        conn.execute("PRAGMA busy_timeout=60000")
-        try:
+        with get_db(busy_timeout=60000) as conn:
             result = index_session_file(
                 filepath, conn,
                 generate_embeds=False,
@@ -321,8 +300,6 @@ def index_local_endpoint():
             log.info(f"index-local: {filepath.name} -> {result.get('status')} "
                      f"({result.get('messages', 0)} msgs, agent={result.get('agent', '?')})")
             return jsonify(result), 200
-        finally:
-            conn.close()
     except Exception as e:
         log.error(f"index-local error for {filepath.name}: {e}", exc_info=True)
         return jsonify({"error": "Processing failed"}), 500
@@ -419,8 +396,7 @@ def context_endpoint():
         return jsonify({"error": "message_id required"}), 400
 
     try:
-        conn = _get_db()
-        try:
+        with get_db() as conn:
             cursor = conn.execute(
                 "SELECT message_index FROM messages WHERE id = ? AND session_id = ?",
                 (_safe_int(message_id, 0, lo=0), session_id)
@@ -471,8 +447,6 @@ def context_endpoint():
                 "has_more_before": loaded_min > min_idx,
                 "has_more_after": loaded_max < max_idx_all,
             })
-        finally:
-            conn.close()
 
     except Exception as e:
         return jsonify({"error": "Internal error"}), 500
@@ -486,8 +460,7 @@ def activity_endpoint():
     limit = _safe_int(request.args.get('limit', '30'), 30, lo=0, hi=100)
 
     try:
-        conn = _get_db()
-        try:
+        with get_db() as conn:
             conn.row_factory = sqlite3.Row
 
             sql = f"""
@@ -539,8 +512,6 @@ def activity_endpoint():
                 "agent_counts": agent_counts,
                 "total": len(sessions),
             })
-        finally:
-            conn.close()
 
     except Exception as e:
         return jsonify({"error": "Internal error"}), 500
@@ -553,8 +524,7 @@ def recent_endpoint():
     minutes = _safe_int(request.args.get('minutes', '30'), 30, lo=1, hi=120)
 
     try:
-        conn = _get_db()
-        try:
+        with get_db() as conn:
             sql = f"""
                 SELECT s.id as session_id, s.agent_id, m.role, m.content,
                        m.timestamp, m.message_index, s.message_count
@@ -603,8 +573,6 @@ def recent_endpoint():
                 "minutes": minutes,
                 "agent_filter": agent,
             })
-        finally:
-            conn.close()
 
     except Exception as e:
         return jsonify({"error": "Internal error"}), 500
@@ -621,8 +589,7 @@ def session_endpoint():
     window = _safe_int(request.args.get('window', '30'), 30, lo=1, hi=60)
 
     try:
-        conn = _get_db()
-        try:
+        with get_db() as conn:
             sess = conn.execute(
                 "SELECT id, agent_id, started_at, message_count FROM sessions WHERE id = ?",
                 (session_id,)
@@ -694,8 +661,6 @@ def session_endpoint():
                 "has_more_after": has_after,
                 "total_messages": total,
             })
-        finally:
-            conn.close()
 
     except Exception as e:
         return jsonify({"error": "Internal error"}), 500

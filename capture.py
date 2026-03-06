@@ -14,16 +14,14 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional
 
+from db import get_db, DB_PATH, EMBEDDING_MODEL, MIN_CONTENT_LENGTH
+
 # Optional: OpenAI for embeddings
 try:
     from openai import OpenAI
     OPENAI_AVAILABLE = True
 except ImportError:
     OPENAI_AVAILABLE = False
-
-DB_PATH = Path(__file__).parent / "convo_memory.db"
-EMBEDDING_MODEL = "text-embedding-3-small"
-MIN_CONTENT_LENGTH = 10  # Minimum content length to generate embedding
 
 # Module-level client — reused across calls to avoid per-call instantiation
 _openai_client = None
@@ -36,13 +34,6 @@ def _get_openai_client() -> Optional['OpenAI']:
     if _openai_client is None:
         _openai_client = OpenAI()
     return _openai_client
-
-
-def _get_db() -> sqlite3.Connection:
-    """Open a WAL-mode connection to the convo_memory database."""
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.execute("PRAGMA journal_mode=WAL")
-    return conn
 
 
 def _generate_embedding(text: str, client: Optional['OpenAI'] = None) -> Optional[np.ndarray]:
@@ -87,17 +78,11 @@ def capture_thought(
     if not content:
         return {"error": "Empty content"}
 
-    content_hash = hashlib.sha256(content.encode()).hexdigest()[:16]
     metadata_json = json.dumps(metadata or {})
-    close_conn = False
 
-    try:
-        if conn is None:
-            conn = _get_db()
-            close_conn = True
-
+    def _do_capture(c):
         # Dedup: check if identical content was captured recently (last 24h)
-        existing = conn.execute(
+        existing = c.execute(
             """SELECT id FROM thoughts
                WHERE content = ? AND created_at >= datetime('now', '-1 day')
                LIMIT 1""",
@@ -107,7 +92,7 @@ def capture_thought(
             return {"id": existing[0], "content": content, "source": source,
                     "agent": agent, "duplicate": True, "created_at": datetime.now().isoformat()}
 
-        cursor = conn.execute(
+        cursor = c.execute(
             "INSERT INTO thoughts (content, source, agent, metadata) VALUES (?, ?, ?, ?)",
             (content, source, agent, metadata_json)
         )
@@ -119,13 +104,13 @@ def capture_thought(
             openai_client = _get_openai_client()
             embedding = _generate_embedding(content, openai_client)
             if embedding is not None:
-                conn.execute(
+                c.execute(
                     "INSERT INTO thought_embeddings (thought_id, embedding, model) VALUES (?, ?, ?)",
                     (thought_id, embedding.tobytes(), EMBEDDING_MODEL)
                 )
                 embed_stored = True
 
-        conn.commit()
+        c.commit()
 
         return {
             "id": thought_id,
@@ -137,11 +122,13 @@ def capture_thought(
             "created_at": datetime.now().isoformat(),
         }
 
+    try:
+        if conn is not None:
+            return _do_capture(conn)
+        with get_db() as c:
+            return _do_capture(c)
     except Exception as e:
         return {"error": str(e)}
-    finally:
-        if close_conn and conn:
-            conn.close()
 
 
 def list_thoughts(
@@ -152,12 +139,7 @@ def list_thoughts(
     conn: sqlite3.Connection = None,
 ) -> list[dict]:
     """List thoughts in reverse chronological order."""
-    close_conn = False
-    try:
-        if conn is None:
-            conn = _get_db()
-            close_conn = True
-
+    def _do_list(c):
         sql = "SELECT id, content, source, agent, metadata, created_at FROM thoughts WHERE 1=1"
         params = []
         if source:
@@ -169,7 +151,7 @@ def list_thoughts(
         sql += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
         params.extend([limit, offset])
 
-        rows = conn.execute(sql, params).fetchall()
+        rows = c.execute(sql, params).fetchall()
         return [
             {
                 "id": r[0],
@@ -181,34 +163,33 @@ def list_thoughts(
             }
             for r in rows
         ]
+
+    try:
+        if conn is not None:
+            return _do_list(conn)
+        with get_db() as c:
+            return _do_list(c)
     except Exception as e:
         return [{"error": str(e)}]
-    finally:
-        if close_conn and conn:
-            conn.close()
 
 
 def delete_thought(thought_id: int, conn: sqlite3.Connection = None) -> dict:
     """Delete a thought by ID."""
-    close_conn = False
-    try:
-        if conn is None:
-            conn = _get_db()
-            close_conn = True
-
-        # Delete embedding first (FK)
-        conn.execute("DELETE FROM thought_embeddings WHERE thought_id = ?", (thought_id,))
-        cursor = conn.execute("DELETE FROM thoughts WHERE id = ?", (thought_id,))
-        conn.commit()
-
+    def _do_delete(c):
+        c.execute("DELETE FROM thought_embeddings WHERE thought_id = ?", (thought_id,))
+        cursor = c.execute("DELETE FROM thoughts WHERE id = ?", (thought_id,))
+        c.commit()
         if cursor.rowcount == 0:
             return {"error": f"Thought {thought_id} not found"}
         return {"deleted": thought_id}
+
+    try:
+        if conn is not None:
+            return _do_delete(conn)
+        with get_db() as c:
+            return _do_delete(c)
     except Exception as e:
         return {"error": str(e)}
-    finally:
-        if close_conn and conn:
-            conn.close()
 
 
 def batch_embed_thoughts(thought_ids: list[int] = None, conn: sqlite3.Connection = None) -> dict:
@@ -221,16 +202,10 @@ def batch_embed_thoughts(thought_ids: list[int] = None, conn: sqlite3.Connection
     if client is None:
         return {"error": "OpenAI not available"}
 
-    close_conn = False
-    try:
-        if conn is None:
-            conn = _get_db()
-            close_conn = True
-
-        # Find thoughts without embeddings
+    def _do_batch(c):
         if thought_ids:
             placeholders = ','.join('?' * len(thought_ids))
-            rows = conn.execute(
+            rows = c.execute(
                 f"""SELECT t.id, t.content FROM thoughts t
                     LEFT JOIN thought_embeddings te ON te.thought_id = t.id
                     WHERE t.id IN ({placeholders}) AND te.id IS NULL
@@ -238,7 +213,7 @@ def batch_embed_thoughts(thought_ids: list[int] = None, conn: sqlite3.Connection
                 thought_ids + [MIN_CONTENT_LENGTH]
             ).fetchall()
         else:
-            rows = conn.execute(
+            rows = c.execute(
                 """SELECT t.id, t.content FROM thoughts t
                    LEFT JOIN thought_embeddings te ON te.thought_id = t.id
                    WHERE te.id IS NULL AND LENGTH(t.content) >= ?""",
@@ -248,7 +223,6 @@ def batch_embed_thoughts(thought_ids: list[int] = None, conn: sqlite3.Connection
         if not rows:
             return {"embedded": 0, "total": 0}
 
-        # Batch embed (max 2048 per API call)
         BATCH_SIZE = 2048
         total_embedded = 0
 
@@ -261,7 +235,7 @@ def batch_embed_thoughts(thought_ids: list[int] = None, conn: sqlite3.Connection
                 response = client.embeddings.create(model=EMBEDDING_MODEL, input=texts)
                 for j, emb_data in enumerate(response.data):
                     embedding = np.array(emb_data.embedding, dtype=np.float32)
-                    conn.execute(
+                    c.execute(
                         "INSERT INTO thought_embeddings (thought_id, embedding, model) VALUES (?, ?, ?)",
                         (ids[j], embedding.tobytes(), EMBEDDING_MODEL)
                     )
@@ -269,41 +243,35 @@ def batch_embed_thoughts(thought_ids: list[int] = None, conn: sqlite3.Connection
             except Exception as e:
                 print(f"Batch embedding error: {e}")
 
-        conn.commit()
+        c.commit()
         return {"embedded": total_embedded, "total": len(rows)}
 
+    try:
+        if conn is not None:
+            return _do_batch(conn)
+        with get_db() as c:
+            return _do_batch(c)
     except Exception as e:
         return {"error": str(e)}
-    finally:
-        if close_conn and conn:
-            conn.close()
 
 
 def thought_stats(conn: sqlite3.Connection = None) -> dict:
     """Get statistics about captured thoughts."""
-    close_conn = False
-    try:
-        if conn is None:
-            conn = _get_db()
-            close_conn = True
-
-        total = conn.execute("SELECT COUNT(*) FROM thoughts").fetchone()[0]
-        embedded = conn.execute("SELECT COUNT(*) FROM thought_embeddings").fetchone()[0]
-        by_source = dict(conn.execute(
+    def _do_stats(c):
+        total = c.execute("SELECT COUNT(*) FROM thoughts").fetchone()[0]
+        embedded = c.execute("SELECT COUNT(*) FROM thought_embeddings").fetchone()[0]
+        by_source = dict(c.execute(
             "SELECT source, COUNT(*) FROM thoughts GROUP BY source"
         ).fetchall())
-        by_agent = dict(conn.execute(
+        by_agent = dict(c.execute(
             "SELECT COALESCE(agent, 'none'), COUNT(*) FROM thoughts GROUP BY agent"
         ).fetchall())
+        return {"total": total, "embedded": embedded, "by_source": by_source, "by_agent": by_agent}
 
-        return {
-            "total": total,
-            "embedded": embedded,
-            "by_source": by_source,
-            "by_agent": by_agent,
-        }
+    try:
+        if conn is not None:
+            return _do_stats(conn)
+        with get_db() as c:
+            return _do_stats(c)
     except Exception as e:
         return {"error": str(e)}
-    finally:
-        if close_conn and conn:
-            conn.close()

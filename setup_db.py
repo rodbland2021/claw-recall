@@ -7,7 +7,7 @@ Creates the SQLite database with FTS5 full-text search.
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent / "convo_memory.db"
+from db import get_db, DB_PATH
 
 SCHEMA = """
 -- Sessions table: metadata about each conversation
@@ -177,24 +177,21 @@ def get_db_stats(db_path: Path = DB_PATH) -> dict:
     """Get database statistics."""
     if not db_path.exists():
         return {"exists": False}
-    
-    conn = sqlite3.connect(db_path)
-    stats = {"exists": True}
-    
-    stats["sessions"] = conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
-    stats["messages"] = conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
-    stats["embeddings"] = conn.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0]
-    try:
-        stats["thoughts"] = conn.execute("SELECT COUNT(*) FROM thoughts").fetchone()[0]
-        stats["thought_embeddings"] = conn.execute("SELECT COUNT(*) FROM thought_embeddings").fetchone()[0]
-    except sqlite3.OperationalError:
-        stats["thoughts"] = 0
-        stats["thought_embeddings"] = 0
-    stats["agents"] = conn.execute("SELECT DISTINCT agent_id FROM sessions").fetchall()
-    stats["agents"] = [a[0] for a in stats["agents"]]
+
+    with get_db(db_path) as conn:
+        stats = {"exists": True}
+        stats["sessions"] = conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
+        stats["messages"] = conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
+        stats["embeddings"] = conn.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0]
+        try:
+            stats["thoughts"] = conn.execute("SELECT COUNT(*) FROM thoughts").fetchone()[0]
+            stats["thought_embeddings"] = conn.execute("SELECT COUNT(*) FROM thought_embeddings").fetchone()[0]
+        except sqlite3.OperationalError:
+            stats["thoughts"] = 0
+            stats["thought_embeddings"] = 0
+        stats["agents"] = conn.execute("SELECT DISTINCT agent_id FROM sessions").fetchall()
+        stats["agents"] = [a[0] for a in stats["agents"]]
     stats["file_size_mb"] = round(db_path.stat().st_size / 1024 / 1024, 2)
-    
-    conn.close()
     return stats
 
 

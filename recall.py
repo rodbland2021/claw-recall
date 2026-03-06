@@ -376,14 +376,10 @@ def _run_capture(args):
 
 def _run_recent(args):
     """Handle the 'recent' subcommand — full transcript of last N minutes."""
-    import sqlite3
-    from search import DB_PATH
+    from db import get_db
 
     minutes = max(1, min(args.minutes, 120))
     agent = args.agent
-
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.execute("PRAGMA journal_mode=WAL")
 
     sql = """
         SELECT s.agent_id, s.id, m.role, m.content, m.timestamp, m.message_index, s.message_count
@@ -402,8 +398,8 @@ def _run_recent(args):
         params.append(agent)
     sql += " ORDER BY m.timestamp ASC, m.message_index ASC LIMIT 500"
 
-    rows = conn.execute(sql, params).fetchall()
-    conn.close()
+    with get_db() as conn:
+        rows = conn.execute(sql, params).fetchall()
 
     if not rows:
         print(f"No messages found in the last {minutes} minutes.")
