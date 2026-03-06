@@ -11,8 +11,8 @@ Auto-detects when semantic search is appropriate based on query structure.
 
 Usage:
     ./recall.py "what did we discuss about playbooks"
-    ./recall.py "LYFER campaign" --agent main
-    ./recall.py "B-roll workflow" --files-only
+    ./recall.py "product launch" --agent main
+    ./recall.py "video editing workflow" --files-only
     ./recall.py "Facebook ads" --convos-only
     ./recall.py "act_12345" --keyword          # Force keyword search
 """
@@ -441,15 +441,15 @@ def main():
         epilog="""
 Examples:
     claw-recall "what did we discuss about playbooks"   # Auto: semantic
-    claw-recall "LYFER"                                  # Auto: keyword (short)
+    claw-recall "PROJ42"                                  # Auto: keyword (short)
     claw-recall "act_12345" --keyword                    # Force keyword
-    claw-recall "B-roll workflow" --agent cyrus
-    claw-recall "Facebook ads" --files-only
-    claw-recall "grok" --since 60m                       # Last 60 minutes
-    claw-recall "Kit" --since 2h --agent main            # Last 2 hours, specific agent
-    claw-recall "floship" --from 2026-02-15 --to 2026-02-17   # Date range
-    claw-recall capture "Rod prefers dark mode"           # Capture a thought
-    claw-recall capture "API rate limit is 100/min" --source manual --agent kit
+    claw-recall "video editing" --agent atlas
+    claw-recall "quarterly report" --files-only
+    claw-recall "deployment" --since 60m                  # Last 60 minutes
+    claw-recall "refactor" --since 2h --agent main        # Last 2 hours, specific agent
+    claw-recall "budget" --from 2026-02-15 --to 2026-02-17   # Date range
+    claw-recall capture "Always use dark mode"            # Capture a thought
+    claw-recall capture "API rate limit is 100/min" --source manual --agent butler
         """
     )
 
@@ -475,7 +475,7 @@ Examples:
         return
 
     parser.add_argument('query', nargs='+', help='Search query')
-    parser.add_argument('--agent', '-a', help='Filter by agent (main, cyrus, etc.)')
+    parser.add_argument('--agent', '-a', help='Filter by agent display name (or slot ID, auto-resolved)')
 
     # Mutually exclusive: semantic vs keyword (default: auto-detect)
     mode_group = parser.add_mutually_exclusive_group()
@@ -517,6 +517,8 @@ Examples:
         resolved = _resolve_agent(args.agent)
         if resolved != args.agent:
             print(f"   Agent: {args.agent} → {resolved}")
+            if args.agent.lower() == 'main':
+                print(f"   Note: 'main' is ambiguous in multi-machine setups — use the display name directly for precision")
         else:
             print(f"   Agent: {args.agent}")
     if args.since:

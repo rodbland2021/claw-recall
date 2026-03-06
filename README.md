@@ -163,8 +163,8 @@ Returns the full transcript of the last 30 minutes — no search query needed. T
 ```bash
 # Search (auto-detects keyword vs semantic)
 ./recall.py search "what did we discuss about playbooks"
-./recall.py search "LYFER" --keyword
-./recall.py search "budget decisions" --agent cyrus --since 2h
+./recall.py search "PROJ42" --keyword
+./recall.py search "budget decisions" --agent atlas --since 2h
 
 # Browse recent transcripts (no search query)
 ./recall.py recent --agent kit --minutes 30
@@ -439,7 +439,7 @@ During indexing, Claw Recall detects which agent produced each session file base
 | `~/.openclaw/agents/<slot>/sessions/` | OpenClaw active sessions | Slot name from path |
 | `~/.openclaw/agents-archive/<slot>-*.jsonl` | OpenClaw archived sessions | Slot name from filename |
 
-For OpenClaw sessions, the **slot name** (e.g., `main`, `cyrus`) is extracted from the file path, then mapped to a **display name** via `AGENT_NAME_MAP` in `index.py`.
+For OpenClaw sessions, the **slot name** (e.g., `main`, `assistant`) is extracted from the file path, then mapped to a **display name** via `agents.json`.
 
 ### Customizing Agent Names
 
@@ -479,13 +479,15 @@ When searching, the `agent` parameter accepts **both** slot IDs and display name
 
 The CLI shows the resolution: `Agent: main → Butler`
 
+> **Note:** In multi-machine setups, the `main` slot can mean different agents on different machines (e.g., "Butler" on your server vs "Claude" on your desktop). For unambiguous searches, always use the **display name** directly. The CLI warns when `main` is used as a search filter.
+
 ## Search Modes
 
 Claw Recall auto-detects the best search mode:
 
 | Query Type | Mode | Example |
 |-----------|------|---------|
-| Short terms, IDs | Keyword | `"LYFER"`, `"act_12345"` |
+| Short terms, IDs | Keyword | `"PROJ42"`, `"act_12345"` |
 | Questions | Semantic | `"what did we discuss about playbooks"` |
 | Quoted phrases | Keyword | `"exact phrase"` |
 | File paths | Keyword | `~/repos/claw-recall/` |

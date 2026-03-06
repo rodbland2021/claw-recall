@@ -123,19 +123,19 @@ def extract_session_metadata(filepath: Path) -> dict:
     # Pattern: /agents-archive-cc/ (synced CC desktop archive)
     if metadata['agent_id'] == 'unknown':
         if '/agents-archive-cc/' in path_str:
-            metadata['agent_id'] = 'CC'
+            metadata['agent_id'] = _normalize_agent_id('claude-code')
             metadata['channel'] = 'terminal'
 
     # Pattern: /agents-archive-claude/ (synced Claude archive)
     if metadata['agent_id'] == 'unknown':
         if '/agents-archive-claude/' in path_str:
-            metadata['agent_id'] = 'Claude'
+            metadata['agent_id'] = _normalize_agent_id('claude')
             metadata['channel'] = 'direct'
 
-    # Pattern: /agents-archive-vps/ (synced VPS archive — these are Kit's)
+    # Pattern: /agents-archive-vps/ (synced VPS archive — main agent's sessions)
     if metadata['agent_id'] == 'unknown':
         if '/agents-archive-vps/' in path_str:
-            metadata['agent_id'] = 'Kit'
+            metadata['agent_id'] = _normalize_agent_id('main')
             metadata['channel'] = 'direct'
 
     # Pattern: /agents-archive/{agent_name}/{file} (generic archived, agent subdirs)
@@ -157,14 +157,14 @@ def extract_session_metadata(filepath: Path) -> dict:
             metadata['channel'] = 'direct'
 
     # Pattern: .claude/projects/ (Claude Code sessions)
-    # Local .claude/projects/ = CC-Local, remote .claude/projects/ = CC
+    # Local .claude/projects/ = local CC, remote .claude/projects/ = remote CC
     if metadata['agent_id'] == 'unknown':
         if '.claude/projects' in path_str:
             _local_home = str(Path.home())
             if _local_home in path_str:
-                metadata['agent_id'] = 'CC-VPS'
+                metadata['agent_id'] = _normalize_agent_id('cc-vps')
             else:
-                metadata['agent_id'] = 'CC'
+                metadata['agent_id'] = _normalize_agent_id('claude-code')
             metadata['channel'] = 'terminal'
             # Check if tagged as telegram session
             session_id = filepath.stem
@@ -174,7 +174,7 @@ def extract_session_metadata(filepath: Path) -> dict:
                     tg_sessions = json.loads(marker.read_text())
                     if session_id in tg_sessions:
                         metadata['channel'] = 'telegram'
-                except:
+                except Exception:
                     pass
 
     # === PHASE 2: Filename-based detection ===
@@ -186,12 +186,14 @@ def extract_session_metadata(filepath: Path) -> dict:
     if parts[0] == 'agent' and len(parts) >= 2:
         # OpenClaw format: agent-{agent_id}-{channel}-...
         raw_agent = parts[1]
-        if metadata['agent_id'] == 'unknown' or metadata['agent_id'] in ('Kit', 'Claude'):
+        _main_display = _normalize_agent_id('main')
+        _claude_display = _normalize_agent_id('claude')
+        if metadata['agent_id'] == 'unknown' or metadata['agent_id'] in (_main_display, _claude_display):
             # Filename agent overrides only if it's a known agent and path gave us a generic answer
-            # BUT: on remote machine, 'main' = Claude, not Kit — don't let filename override back
+            # BUT: on remote machine, 'main' maps differently — don't let filename override back
             if raw_agent.lower() in KNOWN_AGENTS:
                 if is_remote and raw_agent == 'main':
-                    metadata['agent_id'] = 'Claude'
+                    metadata['agent_id'] = _claude_display
                 else:
                     metadata['agent_id'] = _normalize_agent_id(raw_agent)
         # Always extract channel from filename if available
@@ -207,7 +209,7 @@ def extract_session_metadata(filepath: Path) -> dict:
         session_id = filepath.stem
         try:
             uuid.UUID(session_id)
-            metadata['agent_id'] = 'CC'
+            metadata['agent_id'] = _normalize_agent_id('claude-code')
             metadata['channel'] = 'terminal'
         except ValueError:
             pass
@@ -217,7 +219,7 @@ def extract_session_metadata(filepath: Path) -> dict:
         raw = parts[0].lower()
         if raw in KNOWN_AGENTS:
             if is_remote and raw == 'main':
-                metadata['agent_id'] = 'Claude'
+                metadata['agent_id'] = _normalize_agent_id('claude')
             else:
                 metadata['agent_id'] = _normalize_agent_id(raw)
         elif _is_hex_id(parts[0]):

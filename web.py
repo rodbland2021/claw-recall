@@ -67,10 +67,17 @@ def generate_deep_link(content: str) -> str | None:
 
 
 app = Flask(__name__, template_folder=str(Path(__file__).resolve().parent / 'templates'))
-app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500MB for large session files
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB for session files
 
 REMOTE_INDEX_TEMP_DIR = '/tmp/claw-recall-remote'
 log = logging.getLogger('claw-recall-web')
+
+
+@app.after_request
+def _add_security_headers(response):
+    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    return response
 
 
 @app.route('/')
@@ -108,7 +115,7 @@ def agents_endpoint():
         conn = _get_db()
         try:
             sql = f"""
-                SELECT CASE WHEN s.agent_id = 'Kit' THEN 'main' ELSE s.agent_id END as norm_agent,
+                SELECT s.agent_id as norm_agent,
                        COUNT(*) as cnt
                 FROM sessions s
                 WHERE {VALID_AGENT_FILTER}
@@ -123,7 +130,7 @@ def agents_endpoint():
         finally:
             conn.close()
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Internal error"}), 500
 
 
 @app.route('/capture', methods=['POST'])
@@ -146,7 +153,7 @@ def capture_endpoint():
             return jsonify(result), 500
         return jsonify(result), 201
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Internal error"}), 500
 
 
 @app.route('/capture/poll', methods=['POST'])
@@ -168,7 +175,7 @@ def capture_poll_endpoint():
 
         return jsonify(results), 200
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Internal error"}), 500
 
 
 @app.route('/capture/status')
@@ -178,14 +185,14 @@ def capture_status_endpoint():
         from capture_sources import capture_status
         return jsonify(capture_status())
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Internal error"}), 500
 
 
 def _extract_path_suffix(source_path: str) -> str:
     """Extract the significant path suffix for agent detection.
 
     Preserves the path structure that extract_session_metadata() uses
-    to identify the agent (CC, Claude, Kit, etc.).
+    to identify the agent.
 
     Examples:
         /home/user/.claude/projects/-test/abc.jsonl -> .claude/projects/-test/abc.jsonl
@@ -243,7 +250,7 @@ def index_session_endpoint():
             conn.close()
     except Exception as e:
         log.error(f"index-session error for {filename}: {e}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Internal error"}), 500
     finally:
         if temp_filepath.exists():
             temp_filepath.unlink()
@@ -266,10 +273,11 @@ def index_local_endpoint():
     if not filepath_str or not source_path:
         return jsonify({"error": "filepath and source_path required"}), 400
 
-    filepath = Path(filepath_str)
+    filepath = Path(filepath_str).resolve()
+    staging = Path(REMOTE_INDEX_TEMP_DIR).resolve()
     if not filepath.exists():
-        return jsonify({"error": f"File not found: {filepath_str}"}), 404
-    if not filepath_str.startswith(REMOTE_INDEX_TEMP_DIR):
+        return jsonify({"error": "File not found"}), 404
+    if not str(filepath).startswith(str(staging) + '/'):
         return jsonify({"error": "filepath must be within staging directory"}), 403
 
     try:
@@ -288,8 +296,8 @@ def index_local_endpoint():
         finally:
             conn.close()
     except Exception as e:
-        log.error(f"index-local error for {filepath.name}: {e}")
-        return jsonify({"error": str(e)}), 500
+        log.error(f"index-local error for {filepath.name}: {e}", exc_info=True)
+        return jsonify({"error": "Processing failed"}), 500
     finally:
         # Clean up staging file to prevent /tmp from filling up (runs on success AND error)
         try:
@@ -439,7 +447,7 @@ def context_endpoint():
             conn.close()
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Internal error"}), 500
 
 
 @app.route('/activity')
@@ -507,7 +515,7 @@ def activity_endpoint():
             conn.close()
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Internal error"}), 500
 
 
 @app.route('/recent')
@@ -571,7 +579,7 @@ def recent_endpoint():
             conn.close()
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Internal error"}), 500
 
 
 @app.route('/session')
@@ -662,7 +670,7 @@ def session_endpoint():
             conn.close()
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Internal error"}), 500
 
 
 if __name__ == '__main__':

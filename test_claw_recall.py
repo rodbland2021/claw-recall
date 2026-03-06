@@ -61,10 +61,10 @@ def sample_thoughts(patched_db):
     from capture import capture_thought
 
     thoughts = [
-        ("Rod prefers dark mode across all apps", "manual", "main"),
-        ("Floship API returns 500 on bulk orders over 50 items", "cli", "kit"),
+        ("User prefers dark mode across all apps", "manual", "main"),
+        ("Acme API returns 500 on bulk orders over 50 items", "cli", "butler"),
         ("Meeting with John about Q2 targets — agreed on 15% growth", "mcp", None),
-        ("LYFER campaign Facebook ads performing well, ROAS 3.2x", "http", "cyrus"),
+        ("Widget campaign Facebook ads performing well, ROAS 3.2x", "http", "atlas"),
         ("Email from supplier: shipment delayed by 2 weeks", "gmail", None),
         ("Drive document: Production Schedule updated with new timelines", "drive", None),
     ]
@@ -279,9 +279,9 @@ class TestListDelete:
         conn, _ = patched_db
         from capture import list_thoughts
 
-        thoughts = list_thoughts(agent='kit', conn=conn)
+        thoughts = list_thoughts(agent='butler', conn=conn)
         assert len(thoughts) == 1
-        assert thoughts[0]['agent'] == 'kit'
+        assert thoughts[0]['agent'] == 'butler'
 
     def test_list_thoughts_limit_offset(self, sample_thoughts, patched_db):
         conn, _ = patched_db
@@ -408,11 +408,11 @@ class TestSearch:
         conn, db_path = patched_db
         from search import keyword_search_thoughts
 
-        results = keyword_search_thoughts(conn, "Floship", agent="kit")
+        results = keyword_search_thoughts(conn, "Acme", agent="butler")
         assert len(results) >= 1
-        assert all(r.agent == "kit" for r in results)
+        assert all(r.agent == "butler" for r in results)
 
-        results = keyword_search_thoughts(conn, "Floship", agent="cyrus")
+        results = keyword_search_thoughts(conn, "Acme", agent="atlas")
         assert len(results) == 0
 
 
@@ -423,7 +423,7 @@ class TestAutoDetect:
 
     def test_short_query_keyword(self):
         from recall import should_use_semantic
-        assert should_use_semantic("LYFER") is False
+        assert should_use_semantic("ACME42") is False
         assert should_use_semantic("act_12345") is False
 
     def test_question_semantic(self):
@@ -441,8 +441,8 @@ class TestAutoDetect:
 
     def test_long_query_semantic(self):
         from recall import should_use_semantic
-        # "LYFER" is a short keyword/ID — auto-detect correctly uses keyword for this
-        assert should_use_semantic("Facebook ads LYFER campaign performance") is False
+        # Short ID terms in longer queries still trigger keyword
+        assert should_use_semantic("Facebook ads ACME42 campaign performance") is False
         # Natural language questions should trigger semantic
         assert should_use_semantic("what were the results of the Facebook ads campaign") is True
 
@@ -952,20 +952,30 @@ class TestIntegration:
 # ─── Agent Alias Resolution Tests ─────────────────────────────────────────────
 
 class TestAgentAliases:
-    """Test that raw OpenClaw slot IDs resolve to display names."""
+    """Test that raw OpenClaw slot IDs resolve to display names via agents.json."""
 
-    def test_main_resolves_to_kit(self):
-        from search import _resolve_agent
-        assert _resolve_agent("main") == "Kit"
+    @pytest.fixture(autouse=True)
+    def _patch_aliases(self, monkeypatch):
+        """Patch _AGENT_ALIASES with fictitious test names so tests are self-contained."""
+        import search
+        monkeypatch.setattr(search, '_AGENT_ALIASES', {
+            'main': 'Butler',
+            'claude-code': 'CodeBot',
+            'butler': 'Butler',
+        })
 
-    def test_claude_code_resolves_to_cc(self):
+    def test_main_resolves_to_display_name(self):
         from search import _resolve_agent
-        assert _resolve_agent("claude-code") == "CC"
+        assert _resolve_agent("main") == "Butler"
+
+    def test_claude_code_resolves(self):
+        from search import _resolve_agent
+        assert _resolve_agent("claude-code") == "CodeBot"
 
     def test_display_name_passthrough(self):
         from search import _resolve_agent
-        assert _resolve_agent("Kit") == "Kit"
-        assert _resolve_agent("cyrus") == "cyrus"
+        assert _resolve_agent("Butler") == "Butler"
+        assert _resolve_agent("atlas") == "atlas"
 
     def test_none_passthrough(self):
         from search import _resolve_agent
@@ -974,8 +984,8 @@ class TestAgentAliases:
 
     def test_case_insensitive(self):
         from search import _resolve_agent
-        assert _resolve_agent("MAIN") == "Kit"
-        assert _resolve_agent("Claude-Code") == "CC"
+        assert _resolve_agent("MAIN") == "Butler"
+        assert _resolve_agent("Claude-Code") == "CodeBot"
 
     def test_unknown_agent_passthrough(self):
         from search import _resolve_agent
@@ -1198,10 +1208,10 @@ class TestBrowseRecent:
             """Format timestamp to match production DB format (space separator, not T)."""
             return dt.strftime('%Y-%m-%d %H:%M:%S.%f+00:00')
 
-        # Session 1: kit, 10 minutes ago
+        # Session 1: butler, 10 minutes ago
         conn.execute(
             "INSERT INTO sessions (id, agent_id, started_at, message_count) VALUES (?, ?, ?, ?)",
-            ("sess-kit-1", "kit", _ts(now - timedelta(minutes=10)), 4),
+            ("sess-butler-1", "butler", _ts(now - timedelta(minutes=10)), 4),
         )
         for i, (role, content) in enumerate([
             ("user", "Check my email"),
@@ -1211,22 +1221,22 @@ class TestBrowseRecent:
         ]):
             conn.execute(
                 "INSERT INTO messages (session_id, role, content, timestamp, message_index) VALUES (?, ?, ?, ?, ?)",
-                ("sess-kit-1", role, content, _ts(now - timedelta(minutes=10) + timedelta(seconds=i * 5)), i),
+                ("sess-butler-1", role, content, _ts(now - timedelta(minutes=10) + timedelta(seconds=i * 5)), i),
             )
 
-        # Session 2: cyrus, 5 minutes ago
+        # Session 2: atlas, 5 minutes ago
         conn.execute(
             "INSERT INTO sessions (id, agent_id, started_at, message_count) VALUES (?, ?, ?, ?)",
-            ("sess-cyrus-1", "cyrus", _ts(now - timedelta(minutes=5)), 3),
+            ("sess-atlas-1", "atlas", _ts(now - timedelta(minutes=5)), 3),
         )
         for i, (role, content) in enumerate([
             ("user", "What are the latest ads results?"),
-            ("assistant", "Looking at the Meta Ads dashboard..."),
-            ("assistant", "ROAS is 3.2x for LYFER campaign."),
+            ("assistant", "Looking at the dashboard..."),
+            ("assistant", "ROAS is 3.2x for the campaign."),
         ]):
             conn.execute(
                 "INSERT INTO messages (session_id, role, content, timestamp, message_index) VALUES (?, ?, ?, ?, ?)",
-                ("sess-cyrus-1", role, content, _ts(now - timedelta(minutes=5) + timedelta(seconds=i * 5)), i),
+                ("sess-atlas-1", role, content, _ts(now - timedelta(minutes=5) + timedelta(seconds=i * 5)), i),
             )
 
         # Session 3: boot (should be filtered out)
@@ -1242,7 +1252,7 @@ class TestBrowseRecent:
         # Session 4: old session (2 hours ago, should be excluded at 30 min)
         conn.execute(
             "INSERT INTO sessions (id, agent_id, started_at, message_count) VALUES (?, ?, ?, ?)",
-            ("sess-old-1", "kit", _ts(now - timedelta(hours=2)), 5),
+            ("sess-old-1", "butler", _ts(now - timedelta(hours=2)), 5),
         )
         conn.execute(
             "INSERT INTO messages (session_id, role, content, timestamp, message_index) VALUES (?, ?, ?, ?, ?)",
@@ -1271,16 +1281,16 @@ class TestBrowseRecent:
         response = client.get('/recent?minutes=30')
         assert response.status_code == 200
         data = response.get_json()
-        assert data['total_sessions'] == 2  # kit + cyrus, not boot
-        assert data['total_messages'] == 7  # 4 kit + 3 cyrus
+        assert data['total_sessions'] == 2  # butler + atlas, not boot
+        assert data['total_messages'] == 7  # 4 butler + 3 atlas
 
     def test_recent_agent_filter(self, client):
-        response = client.get('/recent?minutes=30&agent=kit')
+        response = client.get('/recent?minutes=30&agent=butler')
         assert response.status_code == 200
         data = response.get_json()
         assert data['total_sessions'] == 1
-        assert data['agent_filter'] == 'Kit'  # 'kit' resolves to display name 'Kit'
-        assert data['sessions'][0]['agent'] == 'kit'
+        assert data['agent_filter'] == 'butler'  # passthrough — no alias mapping in test
+        assert data['sessions'][0]['agent'] == 'butler'
 
     def test_recent_excludes_boot_sessions(self, client):
         response = client.get('/recent?minutes=30')
@@ -1303,8 +1313,8 @@ class TestBrowseRecent:
     def test_recent_truncates_tool_results(self, client):
         response = client.get('/recent?minutes=30')
         data = response.get_json()
-        kit_session = [s for s in data['sessions'] if s['agent'] == 'kit'][0]
-        tool_msg = [m for m in kit_session['messages'] if m['role'] == 'tool_result'][0]
+        butler_session = [s for s in data['sessions'] if s['agent'] == 'butler'][0]
+        tool_msg = [m for m in butler_session['messages'] if m['role'] == 'tool_result'][0]
         assert len(tool_msg['content']) <= 503  # 500 + "..."
 
     def test_recent_empty_timeframe(self, client):
@@ -1322,10 +1332,10 @@ class TestBrowseRecent:
             assert indices == sorted(indices), "Messages should be in order"
 
     def test_recent_case_insensitive_agent(self, client):
-        response = client.get('/recent?minutes=30&agent=Kit')
+        response = client.get('/recent?minutes=30&agent=Butler')
         data = response.get_json()
         assert data['total_sessions'] == 1
-        assert data['sessions'][0]['agent'] == 'kit'
+        assert data['sessions'][0]['agent'] == 'butler'
 
     def test_recent_minutes_clamped(self, client):
         response = client.get('/recent?minutes=999')
@@ -1340,8 +1350,8 @@ class TestBrowseRecent:
         import mcp_server
         result = mcp_server.browse_recent(minutes=30)
         assert "Recent Transcript" in result
-        assert "kit" in result
-        assert "cyrus" in result
+        assert "butler" in result
+        assert "atlas" in result
         assert "boot" not in result
 
     def test_browse_recent_mcp_agent_filter(self, populated_db, monkeypatch):
@@ -1349,9 +1359,9 @@ class TestBrowseRecent:
         import search
         monkeypatch.setattr(search, 'DB_PATH', db_path)
         import mcp_server
-        result = mcp_server.browse_recent(agent="cyrus", minutes=30)
-        assert "cyrus" in result
-        assert "Check my email" not in result  # kit's message
+        result = mcp_server.browse_recent(agent="atlas", minutes=30)
+        assert "atlas" in result
+        assert "Check my email" not in result  # butler's message
 
     def test_browse_recent_mcp_no_results(self, populated_db, monkeypatch):
         conn, db_path = populated_db

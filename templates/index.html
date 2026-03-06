@@ -414,7 +414,7 @@
                     <h3>Agent Pills</h3>
                     <p>Click an agent pill to browse recent activity without searching.</p>
                     <div class="examples">
-                        <code>Click Kit to see Kit's recent work</code>
+                        <code>Click an agent name to see their recent work</code>
                         <code>Click All to see everything</code>
                     </div>
                 </div>
@@ -505,7 +505,7 @@
 
         // --- Dynamic agent data (populated from /agents on page load) ---
         // Display name overrides for known agents
-        const DISPLAY_OVERRIDES = { 'main': 'Kit', 'cc': 'CC', 'claude-code': 'Claude Code' };
+        const DISPLAY_OVERRIDES = {};  // Add display name overrides here, e.g. { 'main': 'Butler' }
         // Color palette for agent badges/pills — cycles if more agents than colors
         const AGENT_COLORS = [
             { bg: '#2563eb', fg: '#fff', pill: 'rgba(37,99,235,0.25)', border: '#2563eb', text: '#5b9aff' },

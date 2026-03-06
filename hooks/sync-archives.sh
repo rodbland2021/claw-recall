@@ -1,5 +1,5 @@
 #!/bin/bash
-# Sync archived session files between Claude (local) and Kit (VPS)
+# Sync archived session files between local and remote server
 # so both recall databases have full cross-agent search.
 # Runs hourly via cron.
 
@@ -8,7 +8,7 @@ log() { echo "[$(date -u '+%Y-%m-%d %H:%M:%S UTC')] $1" >> "$LOGFILE"; }
 
 log "Starting archive sync..."
 
-# VPS → Local (Kit's archives)
+# VPS → Local (server agent archives)
 rsync -az --timeout=60 vps:~/.openclaw/agents-archive/ ~/.openclaw/agents-archive-vps/ >> "$LOGFILE" 2>&1
 RC1=$?
 if [ $RC1 -eq 0 ]; then
@@ -26,7 +26,7 @@ else
     log "Local → VPS: FAILED (exit=$RC2)"
 fi
 
-# CC sessions → VPS (Claude Code desktop + laptop sessions for Kit's recall)
+# CC sessions → VPS (Claude Code desktop + laptop sessions for server recall)
 ssh vps "mkdir -p ~/.openclaw/agents-archive-cc" 2>/dev/null
 rsync -az --timeout=60 ~/.claude/projects/ vps:~/.openclaw/agents-archive-cc/ >> "$LOGFILE" 2>&1
 RC3=$?

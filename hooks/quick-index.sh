@@ -28,8 +28,8 @@ index_dir() {
     [ -n "$ERRORS" ] && TOTAL_ERRORS=$((TOTAL_ERRORS + ERRORS))
 }
 
-# Kit's own archives + active sessions
-index_dir ~/.openclaw/agents-archive/ "Kit archives" "--include-active"
+# Main agent archives + active sessions
+index_dir ~/.openclaw/agents-archive/ "Main archives" "--include-active"
 
 # Claude (local OpenClaw) archives — synced hourly by sync-archives.sh
 index_dir ~/.openclaw/agents-archive-claude/ "Claude archives"
@@ -43,7 +43,7 @@ index_dir ~/.openclaw/agents-grok-sessions/ "Grok sessions"
 # Chat sessions
 index_dir ~/.openclaw/agents-chat-sessions/ "Chat sessions"
 
-# Claude Code VPS sessions (CC-VPS terminal agent)
+# Claude Code server sessions (local terminal agent)
 index_dir ~/.claude/projects/ "CC-VPS sessions" "--include-active"
 
 if [ "$TOTAL_INDEXED" -gt 0 ] || [ "$TOTAL_ERRORS" -gt 0 ]; then

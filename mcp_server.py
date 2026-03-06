@@ -39,8 +39,8 @@ Use search_memory for finding past conversations and thoughts.
 Use browse_recent to get full transcripts of recent conversations (no search query needed).
 Use capture_thought to save important information for future recall.
 
-Agent names: Use display names for the 'agent' filter — Kit, CC, CC-VPS, Claude, cyrus, etc.
-OpenClaw slot IDs (main, claude-code) are also accepted and auto-resolved.
+Agent names: Use display names for the 'agent' filter (as configured in agents.json).
+OpenClaw slot IDs (main, claude-code, etc.) are also accepted and auto-resolved to display names.
 """)
 
 

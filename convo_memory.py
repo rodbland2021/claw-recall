@@ -7,13 +7,13 @@ Usage:
     from convo_memory import recall, recall_semantic
     
     # Quick keyword search
-    results = recall("LYFER campaign")
+    results = recall("product launch")
     
     # Semantic search (finds related concepts)
     results = recall_semantic("what did we decide about Facebook ads")
     
     # With filters
-    results = recall("playbook", agent="cyrus", days=7)
+    results = recall("playbook", agent="atlas", days=7)
 """
 
 from pathlib import Path
@@ -109,7 +109,7 @@ if __name__ == "__main__":
     
     # Test keyword search
     print("=== Keyword Search ===")
-    results = recall("LYFER campaign", limit=3)
+    results = recall("product launch", limit=3)
     print(json.dumps(results, indent=2, default=str))
     
     print("\n=== Semantic Search ===")
