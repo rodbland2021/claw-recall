@@ -787,6 +787,7 @@ class TestMCPServer:
         assert callable(mcp_server.search_thoughts)
         assert callable(mcp_server.capture_thought)
         assert callable(mcp_server.browse_activity)
+        assert callable(mcp_server.browse_recent)
         assert callable(mcp_server.memory_stats)
         assert callable(mcp_server.poll_sources)
         assert callable(mcp_server.capture_source_status)
@@ -1146,6 +1147,179 @@ class TestIndexSessionEndpoint:
         # Temp file should not exist after request
         temp_path = Path('/tmp/claw-recall-remote/.claude/projects/-test/cleanup123.jsonl')
         assert not temp_path.exists()
+
+
+class TestBrowseRecent:
+    """Test the /recent endpoint and browse_recent MCP tool."""
+
+    @pytest.fixture
+    def populated_db(self, test_db):
+        """Insert sessions and messages with recent timestamps."""
+        conn, db_path = test_db
+        now = datetime.utcnow()
+
+        # Session 1: kit, 10 minutes ago
+        conn.execute(
+            "INSERT INTO sessions (id, agent_id, started_at, message_count) VALUES (?, ?, ?, ?)",
+            ("sess-kit-1", "kit", (now - timedelta(minutes=10)).isoformat(), 4),
+        )
+        for i, (role, content) in enumerate([
+            ("user", "Check my email"),
+            ("assistant", "Let me check your inbox..."),
+            ("tool_result", "Found 3 emails: " + "x" * 400),
+            ("assistant", "You have 3 new emails."),
+        ]):
+            conn.execute(
+                "INSERT INTO messages (session_id, role, content, timestamp, message_index) VALUES (?, ?, ?, ?, ?)",
+                ("sess-kit-1", role, content, (now - timedelta(minutes=10) + timedelta(seconds=i * 5)).isoformat() + "+00:00", i),
+            )
+
+        # Session 2: cyrus, 5 minutes ago
+        conn.execute(
+            "INSERT INTO sessions (id, agent_id, started_at, message_count) VALUES (?, ?, ?, ?)",
+            ("sess-cyrus-1", "cyrus", (now - timedelta(minutes=5)).isoformat(), 3),
+        )
+        for i, (role, content) in enumerate([
+            ("user", "What are the latest ads results?"),
+            ("assistant", "Looking at the Meta Ads dashboard..."),
+            ("assistant", "ROAS is 3.2x for LYFER campaign."),
+        ]):
+            conn.execute(
+                "INSERT INTO messages (session_id, role, content, timestamp, message_index) VALUES (?, ?, ?, ?, ?)",
+                ("sess-cyrus-1", role, content, (now - timedelta(minutes=5) + timedelta(seconds=i * 5)).isoformat() + "+00:00", i),
+            )
+
+        # Session 3: boot (should be filtered out)
+        conn.execute(
+            "INSERT INTO sessions (id, agent_id, started_at, message_count) VALUES (?, ?, ?, ?)",
+            ("sess-boot-1", "boot", (now - timedelta(minutes=3)).isoformat(), 5),
+        )
+        conn.execute(
+            "INSERT INTO messages (session_id, role, content, timestamp, message_index) VALUES (?, ?, ?, ?, ?)",
+            ("sess-boot-1", "system", "Boot sequence", (now - timedelta(minutes=3)).isoformat() + "+00:00", 0),
+        )
+
+        # Session 4: old session (2 hours ago, should be excluded at 30 min)
+        conn.execute(
+            "INSERT INTO sessions (id, agent_id, started_at, message_count) VALUES (?, ?, ?, ?)",
+            ("sess-old-1", "kit", (now - timedelta(hours=2)).isoformat(), 5),
+        )
+        conn.execute(
+            "INSERT INTO messages (session_id, role, content, timestamp, message_index) VALUES (?, ?, ?, ?, ?)",
+            ("sess-old-1", "user", "Old message", (now - timedelta(hours=2)).isoformat() + "+00:00", 0),
+        )
+
+        conn.commit()
+        return conn, db_path
+
+    @pytest.fixture
+    def client(self, populated_db, monkeypatch):
+        conn, db_path = populated_db
+        import web
+        import search
+        monkeypatch.setattr(search, 'DB_PATH', db_path)
+        web.app.config['TESTING'] = True
+        # Patch _get_db to use our test db
+        def _get_test_db():
+            c = sqlite3.connect(str(db_path))
+            c.execute("PRAGMA journal_mode=WAL")
+            return c
+        monkeypatch.setattr(web, '_get_db', _get_test_db)
+        return web.app.test_client()
+
+    def test_recent_returns_messages(self, client):
+        response = client.get('/recent?minutes=30')
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data['total_sessions'] == 2  # kit + cyrus, not boot
+        assert data['total_messages'] == 7  # 4 kit + 3 cyrus
+
+    def test_recent_agent_filter(self, client):
+        response = client.get('/recent?minutes=30&agent=kit')
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data['total_sessions'] == 1
+        assert data['agent_filter'] == 'kit'
+        assert data['sessions'][0]['agent'] == 'kit'
+
+    def test_recent_excludes_boot_sessions(self, client):
+        response = client.get('/recent?minutes=30')
+        data = response.get_json()
+        agents = [s['agent'] for s in data['sessions']]
+        assert 'boot' not in agents
+
+    def test_recent_excludes_old_messages(self, client):
+        response = client.get('/recent?minutes=30')
+        data = response.get_json()
+        session_ids = [s['session_id'] for s in data['sessions']]
+        assert 'sess-old-1' not in session_ids
+
+    def test_recent_includes_old_with_large_window(self, client):
+        response = client.get('/recent?minutes=120')
+        data = response.get_json()
+        session_ids = [s['session_id'] for s in data['sessions']]
+        assert 'sess-old-1' in session_ids
+
+    def test_recent_truncates_tool_results(self, client):
+        response = client.get('/recent?minutes=30')
+        data = response.get_json()
+        kit_session = [s for s in data['sessions'] if s['agent'] == 'kit'][0]
+        tool_msg = [m for m in kit_session['messages'] if m['role'] == 'tool_result'][0]
+        assert len(tool_msg['content']) <= 503  # 500 + "..."
+
+    def test_recent_empty_timeframe(self, client):
+        response = client.get('/recent?minutes=1')
+        # May or may not have results depending on timing — just check structure
+        data = response.get_json()
+        assert 'total_sessions' in data
+        assert 'total_messages' in data
+
+    def test_recent_message_order(self, client):
+        response = client.get('/recent?minutes=30')
+        data = response.get_json()
+        for session in data['sessions']:
+            indices = [m['message_index'] for m in session['messages']]
+            assert indices == sorted(indices), "Messages should be in order"
+
+    def test_recent_case_insensitive_agent(self, client):
+        response = client.get('/recent?minutes=30&agent=Kit')
+        data = response.get_json()
+        assert data['total_sessions'] == 1
+        assert data['sessions'][0]['agent'] == 'kit'
+
+    def test_recent_minutes_clamped(self, client):
+        response = client.get('/recent?minutes=999')
+        data = response.get_json()
+        assert data['minutes'] == 120  # clamped to max
+
+    def test_browse_recent_mcp_tool(self, populated_db, monkeypatch):
+        """Test the MCP tool function directly."""
+        conn, db_path = populated_db
+        import search
+        monkeypatch.setattr(search, 'DB_PATH', db_path)
+        import mcp_server
+        result = mcp_server.browse_recent(minutes=30)
+        assert "Recent Transcript" in result
+        assert "kit" in result
+        assert "cyrus" in result
+        assert "boot" not in result
+
+    def test_browse_recent_mcp_agent_filter(self, populated_db, monkeypatch):
+        conn, db_path = populated_db
+        import search
+        monkeypatch.setattr(search, 'DB_PATH', db_path)
+        import mcp_server
+        result = mcp_server.browse_recent(agent="cyrus", minutes=30)
+        assert "cyrus" in result
+        assert "Check my email" not in result  # kit's message
+
+    def test_browse_recent_mcp_no_results(self, populated_db, monkeypatch):
+        conn, db_path = populated_db
+        import search
+        monkeypatch.setattr(search, 'DB_PATH', db_path)
+        import mcp_server
+        result = mcp_server.browse_recent(agent="nonexistent", minutes=30)
+        assert "No messages found" in result
 
 
 class TestWatcherHelpers:

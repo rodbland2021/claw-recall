@@ -197,6 +197,79 @@ def browse_activity(
 
 
 @mcp.tool()
+def browse_recent(
+    agent: str = "",
+    minutes: int = 30,
+) -> str:
+    """Get the full transcript of recent conversations — the last N minutes of actual messages.
+
+    This is NOT a search tool. It returns ALL messages chronologically, grouped by session.
+    Primary use case: recovering context after compaction or restart.
+
+    Args:
+        agent: Filter by agent name (kit, cyrus, claude, cc, etc.). Empty = all agents.
+        minutes: How many minutes back to look (default 30, max 120)
+    """
+    import sqlite3
+    from search import DB_PATH
+
+    minutes = max(1, min(minutes, 120))
+
+    conn = sqlite3.connect(str(DB_PATH))
+    conn.execute("PRAGMA journal_mode=WAL")
+
+    sql = """
+        SELECT s.agent_id, s.id as session_id, m.role, m.content, m.timestamp, m.message_index, s.message_count
+        FROM messages m
+        JOIN sessions s ON m.session_id = s.id
+        WHERE m.timestamp >= datetime('now', ?)
+          AND s.message_count > 2
+          AND LENGTH(s.agent_id) BETWEEN 2 AND 14
+          AND s.agent_id NOT LIKE 'agent:%'
+          AND s.agent_id NOT GLOB '[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]*'
+          AND s.agent_id NOT IN ('boot', 'acompact', 'compact')
+    """
+    params: list = [f"-{minutes} minutes"]
+    if agent:
+        sql += " AND s.agent_id = ? COLLATE NOCASE"
+        params.append(agent)
+    sql += " ORDER BY m.timestamp ASC, m.message_index ASC LIMIT 500"
+
+    rows = conn.execute(sql, params).fetchall()
+    conn.close()
+
+    if not rows:
+        return f"No messages found in the last {minutes} minutes."
+
+    # Group by session
+    sessions: dict = {}
+    for agent_id, session_id, role, content, timestamp, msg_idx, total_count in rows:
+        if session_id not in sessions:
+            sessions[session_id] = {"agent": agent_id, "messages": [], "first_ts": timestamp, "total": total_count or 0}
+        # Truncate based on role
+        content = content or ""
+        if role == "tool_result" and len(content) > 300:
+            content = content[:300] + "..."
+        elif role == "assistant" and len(content) > 2000:
+            content = content[:2000] + "..."
+        sessions[session_id]["messages"].append((role, content, timestamp))
+
+    total_msgs = sum(len(s["messages"]) for s in sessions.values())
+    lines = [f"=== Recent Transcript (last {minutes} min, {total_msgs} messages across {len(sessions)} session(s)) ===\n"]
+
+    for sid, info in sessions.items():
+        shown = len(info["messages"])
+        total = info["total"]
+        count_note = f" ({shown} of {total} msgs)" if shown < total else f" ({total} msgs)"
+        lines.append(f"--- {info['agent']}{count_note} | {info['first_ts']} | session:{sid[:12]} ---")
+        for role, content, ts in info["messages"]:
+            lines.append(f"[{role}] {content}")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+@mcp.tool()
 def poll_sources(
     source: str = "all",
     account: str = "",

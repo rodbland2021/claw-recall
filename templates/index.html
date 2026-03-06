@@ -710,7 +710,7 @@
                 (r.deepLink ? '<a href="' + escapeAttr(r.deepLink) + '" target="_blank" class="deep-link" onclick="event.stopPropagation()">&#128279;</a>' : '') +
                 '</div>' +
                 '<div class="result-preview">' + highlightTerms(escapeHtml(preview), query) + '</div>' +
-                '<div class="convo-viewer" id="cv-' + cardId + '"></div>' +
+                '<div class="convo-viewer" id="cv-' + cardId + '" onclick="event.stopPropagation()"></div>' +
                 '</div>';
         }
 
@@ -798,6 +798,10 @@
 
         // --- Conversation expansion ---
         async function toggleSearchCard(cardId, sessionId) {
+            // If the user was selecting text, don't toggle the card
+            const sel = window.getSelection();
+            if (sel && sel.toString().trim().length > 0) return;
+
             const card = document.getElementById(cardId);
             const viewer = document.getElementById('cv-' + cardId);
             if (!card || !viewer) return;
@@ -1090,7 +1094,7 @@
                     '<span style="color:#64748b;">' + (s.message_count || 0) + ' msgs</span>' +
                     '</div>' +
                     '<div class="result-preview">' + escapeHtml(truncated) + '</div>' +
-                    '<div class="convo-viewer" id="cv-' + cardId + '"></div>' +
+                    '<div class="convo-viewer" id="cv-' + cardId + '" onclick="event.stopPropagation()"></div>' +
                     '</div>';
             }
             document.getElementById('results').innerHTML = html;

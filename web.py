@@ -510,6 +510,70 @@ def activity_endpoint():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route('/recent')
+def recent_endpoint():
+    """Get full transcript of recent conversations — last N minutes of messages."""
+    agent = request.args.get('agent', '') or None
+    minutes = _safe_int(request.args.get('minutes', '30'), 30, lo=1, hi=120)
+
+    try:
+        conn = _get_db()
+        try:
+            sql = f"""
+                SELECT s.id as session_id, s.agent_id, m.role, m.content,
+                       m.timestamp, m.message_index, s.message_count
+                FROM messages m
+                JOIN sessions s ON m.session_id = s.id
+                WHERE m.timestamp >= datetime('now', ?)
+                  AND {VALID_AGENT_FILTER}
+            """
+            params: list = [f"-{minutes} minutes"]
+            if agent:
+                sql += " AND s.agent_id = ? COLLATE NOCASE"
+                params.append(agent)
+            sql += " ORDER BY m.timestamp ASC, m.message_index ASC LIMIT 500"
+
+            rows = conn.execute(sql, params).fetchall()
+
+            # Group by session
+            sessions_map: dict = {}
+            session_order: list = []
+            for session_id, agent_id, role, content, timestamp, msg_idx, total_count in rows:
+                if session_id not in sessions_map:
+                    sessions_map[session_id] = {
+                        "session_id": session_id,
+                        "agent": agent_id,
+                        "messages": [],
+                        "total_session_messages": total_count or 0,
+                    }
+                    session_order.append(session_id)
+                content_text = content or ""
+                if role == "tool_result" and len(content_text) > 500:
+                    content_text = content_text[:500] + "..."
+                sessions_map[session_id]["messages"].append({
+                    "role": role,
+                    "content": content_text,
+                    "timestamp": timestamp,
+                    "message_index": msg_idx,
+                })
+
+            sessions_list = [sessions_map[sid] for sid in session_order]
+            total_msgs = sum(len(s["messages"]) for s in sessions_list)
+
+            return jsonify({
+                "sessions": sessions_list,
+                "total_sessions": len(sessions_list),
+                "total_messages": total_msgs,
+                "minutes": minutes,
+                "agent_filter": agent,
+            })
+        finally:
+            conn.close()
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route('/session')
 def session_endpoint():
     """Return messages for a session, with optional windowed loading."""
