@@ -1,6 +1,6 @@
 # Claw Recall
 
-**Searchable conversation memory for AI agents.**
+**Searchable conversation memory for AI agents.** · v2.0.0 · [Changelog](CHANGELOG.md)
 
 Claw Recall gives your AI agents the ability to search through ALL past conversations — not just what's in the current context window. When context compaction erases memory, Claw Recall brings it back.
 
