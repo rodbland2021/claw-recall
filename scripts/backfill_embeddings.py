@@ -6,16 +6,20 @@ Generates embeddings for messages that don't have them yet.
 Processes in small batches to avoid memory issues and API rate limits.
 
 Usage:
-    python3 backfill_embeddings.py              # Default: 500 messages per run
-    python3 backfill_embeddings.py --limit 2000  # Custom batch size
-    python3 backfill_embeddings.py --quiet       # Suppress output (for cron)
+    python3 scripts/backfill_embeddings.py              # Default: 500 messages per run
+    python3 scripts/backfill_embeddings.py --limit 2000  # Custom batch size
+    python3 scripts/backfill_embeddings.py --quiet       # Suppress output (for cron)
 """
 
 import sys
+import os
 import sqlite3
 import argparse
 import numpy as np
 from pathlib import Path
+
+# Allow imports from project root when run from scripts/
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 sys.path.insert(0, str(Path(__file__).parent))
 from index import EMBEDDING_MODEL, EMBEDDING_BATCH_SIZE, MIN_CONTENT_LENGTH

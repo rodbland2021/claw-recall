@@ -367,15 +367,15 @@ python3 index.py --source ~/.claude/projects/ --incremental --embeddings
 **2. Backfill embeddings for messages indexed without them:**
 ```bash
 # Process 500 messages per run (cron-safe, picks up where it left off)
-python3 backfill_embeddings.py
+python3 scripts/backfill_embeddings.py
 
 # Larger batch for faster catch-up
-python3 backfill_embeddings.py --limit 2000
+python3 scripts/backfill_embeddings.py --limit 2000
 ```
 
 If you initially indexed without `--embeddings`, the backfill script will generate them incrementally. Run it via cron for hands-off catch-up:
 ```bash
-*/30 * * * * cd /path/to/claw-recall && python3 backfill_embeddings.py --quiet
+*/30 * * * * cd /path/to/claw-recall && python3 scripts/backfill_embeddings.py --quiet
 ```
 
 **3. Backfill external sources:**
@@ -389,7 +389,7 @@ python3 capture_sources.py slack --backfill --days 30    # Last month of Slack
 ```bash
 sqlite3 convo_memory.db "DELETE FROM embeddings;"
 python3 index.py --source ~/.openclaw/agents-archive/ --incremental --embeddings
-python3 backfill_embeddings.py --limit 5000   # Run repeatedly until caught up
+python3 scripts/backfill_embeddings.py --limit 5000   # Run repeatedly until caught up
 ```
 
 ## Multi-Agent Setup
@@ -400,11 +400,11 @@ mkdir -p ~/shared/convo-memory
 ln -s /path/to/claw-recall/convo_memory.db ~/shared/convo-memory/convo_memory.db
 ```
 
-Cross-machine search: use `hooks/sync-archives.sh` to rsync session files between machines, or use the real-time watcher (`cc-session-watcher.py`).
+Cross-machine search: use `scripts/sync-archives.sh` to rsync session files between machines, or use the real-time watcher (`cc-session-watcher.py`).
 
 ## Health Monitoring
 
-The included `health-check.sh` monitors service availability:
+The included `scripts/health-check.sh` monitors service availability:
 
 - **MCP SSE service** — active and responding to HTTP requests
 - **Web API service** — active and returning valid responses
@@ -413,7 +413,7 @@ The included `health-check.sh` monitors service availability:
 
 Run it via cron:
 ```bash
-*/15 * * * * /bin/bash /path/to/claw-recall/health-check.sh
+*/15 * * * * /bin/bash /path/to/claw-recall/scripts/health-check.sh
 ```
 
 Configure via environment variables:
@@ -661,16 +661,16 @@ SQLite with WAL mode. Tables:
 | `index.py` | Session file indexer with embedding generation |
 | `watcher.py` | Real-time inotify watcher for session files |
 | `cc-session-watcher.py` | Remote machine watcher (pushes files via HTTP) |
-| `health-check.sh` | Service health monitoring with alerting |
+| `scripts/health-check.sh` | Service health monitoring with alerting |
 | `setup_db.py` | Database schema and migrations |
 
 ## Testing
 
 ```bash
-python3 -m pytest test_claw_recall.py -v           # All tests
-python3 -m pytest test_claw_recall.py -k browse     # Browse recent tests
-python3 -m pytest test_claw_recall.py -k search     # Search tests
-python3 -m pytest test_claw_recall.py -k mcp        # MCP tests
+python3 -m pytest tests/test_claw_recall.py -v           # All tests
+python3 -m pytest tests/test_claw_recall.py -k browse     # Browse recent tests
+python3 -m pytest tests/test_claw_recall.py -k search     # Search tests
+python3 -m pytest tests/test_claw_recall.py -k mcp        # MCP tests
 ```
 
 ## Requirements

@@ -36,7 +36,7 @@ Major release: MCP integration, external source capture, SSE transport, health m
 - rsync fallback for oversized session files
 
 **Health Monitoring**
-- `health-check.sh` monitors MCP SSE, Web API, and watcher services
+- `scripts/health-check.sh` monitors MCP SSE, Web API, and watcher services
 - Context-aware indexing check (only alerts when modified files exist)
 - Embedding gap monitoring
 - Configurable alerting via external script
