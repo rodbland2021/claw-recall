@@ -68,6 +68,23 @@ recall --capture "SQLite WAL mode must be enabled before any concurrent reads"
 # Stored as a searchable thought, retrievable by any agent
 ```
 
+### Building Shared Knowledge Across Agents
+Agents should **proactively capture thoughts** whenever they discover something useful — a working solution, a gotcha, a pattern, or an important fact. This builds a shared knowledge base that ALL agents can search:
+
+```bash
+# Agent discovers a database gotcha
+recall --capture "SQLite PRAGMA journal_mode=WAL must be set before any concurrent reads"
+
+# Agent finds an API limitation
+recall --capture "Rate limit on /api/search is 60 req/min — batch requests when processing bulk data"
+
+# Via MCP
+mcp__claw-recall__capture_thought content="pytest fixtures with session scope share state across tests — use function scope for isolation" agent="my-agent"
+```
+
+**What to capture:** Reusable insights, working solutions, gotchas, API discoveries, tool limitations.
+**What NOT to capture:** Session-specific minutiae, temporary state, things already in docs.
+
 ## Quick Start
 
 ```bash
@@ -158,8 +175,8 @@ Claw Recall is an MCP server with **8 tools**:
 
 | Tool | Description |
 |------|-------------|
-| `search_memory` | Full unified search — conversations, files, thoughts. Auto-detects keyword vs semantic. |
-| `search_thoughts` | Search captured thoughts only |
+| `search_memory` | **Primary search tool** — searches ALL sources in one call: conversations, thoughts (Gmail, Drive, Slack), and files. Auto-detects keyword vs semantic. |
+| `search_thoughts` | Search captured thoughts only (use `search_memory` for general search — it includes thoughts) |
 | `capture_thought` | Save a note/observation to memory |
 | `browse_recent` | Full transcript of last N minutes — **the primary context recovery tool** |
 | `browse_activity` | Session summaries (who talked when) |
