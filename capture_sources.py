@@ -44,8 +44,8 @@ log = logging.getLogger("capture_sources")
 GMAIL_POLL_LIMIT = 50
 DRIVE_POLL_LIMIT = 30
 # Max body length to capture (avoid bloating DB)
-# 8000 chars ≈ 2000 tokens — enough for meeting transcriptions and strategic docs
-MAX_BODY_LENGTH = 8000
+# 4000 chars ≈ 1000 tokens — enough for strategic docs while staying compact
+MAX_BODY_LENGTH = 4000
 
 # ─── Gmail Noise Filter ─────────────────────────────────────────────────────
 # Sender patterns that indicate automated/marketing/noise emails.

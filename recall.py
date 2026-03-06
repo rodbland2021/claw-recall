@@ -268,9 +268,8 @@ def unified_search(
 
         if not files_only:
             futures['convos'] = executor.submit(search_convos)
-            # Thoughts (Gmail, Drive, Slack) are captured content — include them
-            # with conversations, not with files. Only skip for files_only.
-            futures['thoughts'] = executor.submit(search_captured_thoughts)
+            if not convos_only:
+                futures['thoughts'] = executor.submit(search_captured_thoughts)
         if not convos_only:
             futures['files'] = executor.submit(search_docs)
 
