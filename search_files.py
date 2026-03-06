@@ -5,6 +5,7 @@ Complements convo-memory by searching persistent docs, not just conversations.
 """
 
 import argparse
+import logging
 import os
 import re
 from pathlib import Path
@@ -59,7 +60,8 @@ def _get_file_lines(filepath: Path) -> List[str]:
             _file_cache.pop(next(iter(_file_cache)))
         _file_cache[path_str] = (mtime, lines)
         return lines
-    except Exception:
+    except Exception as e:
+        logging.getLogger("search_files").warning(f"Could not read {filepath}: {e}")
         return []
 
 
