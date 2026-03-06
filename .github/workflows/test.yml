@@ -23,7 +23,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install numpy flask pytest mcp
+          pip install numpy flask pytest mcp requests
 
       - name: Run tests
         run: PYTHONPATH=. pytest tests/test_claw_recall.py -v --tb=short
