@@ -5,6 +5,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.1.0] — 2026-03-08
+
+Package refactor: all code consolidated into `claw_recall/` Python package with proper subpackages.
+
+### Changed
+
+**Package Structure**
+- All source code moved from root-level `.py` files into `claw_recall/` package with 4 subpackages: `search/`, `capture/`, `indexing/`, `api/`
+- All components now invoked via `python3 -m claw_recall.xxx` instead of `python3 filename.py`
+- Config centralized in `claw_recall/config.py` — single source of truth for DB_PATH, embedding settings, agent name mappings
+- Database connection management in `claw_recall/database.py` with `get_db()` context manager
+- Systemd service files updated to use module execution
+- CLI wrapper (`recall`) updated to call `python3 -m claw_recall.cli`
+
+**Documentation**
+- README rewritten — shorter, focused on quick start, all code examples corrected
+- Comprehensive installation/operations guide split into `docs/guide.md`
+- CONTRIBUTING.md updated with correct test commands
+- Internal reference doc (`claw-recall-reference`) updated with package layout
+
+**Root Cleanup**
+- 14 root-level Python files removed (replaced by package modules)
+- Scripts moved to `scripts/` directory
+- Tests moved to `tests/` directory
+
+### Fixed
+- mcporter MCP stdio config updated to reference new package module path
+- All 123 tests updated for new import paths and passing
+
+---
+
 ## [2.0.0] — 2026-03-06
 
 Major release: MCP integration, external source capture, SSE transport, health monitoring, and production hardening.
@@ -12,8 +43,8 @@ Major release: MCP integration, external source capture, SSE transport, health m
 ### Added
 
 **MCP Integration**
-- MCP stdio server for local agent access (`mcp_server.py`)
-- MCP SSE/HTTP server for remote agent access (`mcp_server_sse.py`)
+- MCP stdio server for local agent access (now `claw_recall/api/mcp_stdio.py`)
+- MCP SSE/HTTP server for remote agent access (now `claw_recall/api/mcp_sse.py`)
 - 8 tools: `search_memory`, `search_thoughts`, `capture_thought`, `browse_recent`, `browse_activity`, `memory_stats`, `poll_sources`, `capture_source_status`
 - Integration test suite covering all MCP endpoints (17 assertions across 13 endpoints)
 
