@@ -61,7 +61,7 @@ def generate_deep_link(content: str) -> str | None:
 
 
 # Templates are in the repo root's templates/ dir
-_REPO_DIR = Path(__file__).resolve().parent.parent
+_REPO_DIR = Path(__file__).resolve().parent.parent.parent
 app = Flask(__name__, template_folder=str(_REPO_DIR / 'templates'))
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB for session files
 
