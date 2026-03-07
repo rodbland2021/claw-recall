@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.1.1] — 2026-03-08
+
+### Fixed
+- Web UI broken after v2.1.0 package refactor — `_REPO_DIR` in `web.py` resolved one level too shallow (`claw_recall/` instead of repo root), causing `TemplateNotFound: index.html` on every request
+
+---
+
 ## [2.1.0] — 2026-03-08
 
 Package refactor: all code consolidated into `claw_recall/` Python package with proper subpackages.
