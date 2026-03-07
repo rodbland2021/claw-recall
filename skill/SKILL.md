@@ -6,7 +6,11 @@ metadata:
     "openclaw":
       {
         "emoji": "🧠",
-        "requires": { "bins": ["python3"] },
+        "requires": { "bins": ["python3", "pip3"] },
+        "env": [
+          { "key": "OPENAI_API_KEY", "description": "OpenAI API key for semantic search (optional, keyword search works without it)", "required": false },
+          { "key": "PYTHONPATH", "description": "Path to claw-recall installation directory", "required": true }
+        ],
         "tags": ["memory", "search", "recall", "conversation", "context", "compaction", "multi-agent"],
         "homepage": "https://github.com/rodbland2021/claw-recall",
         "community": "https://discord.gg/4wGTVa9Bt6"
