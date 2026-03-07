@@ -27,3 +27,14 @@ jobs:
 
       - name: Run tests
         run: PYTHONPATH=. pytest tests/test_claw_recall.py -v --tb=short
+
+  doc-audit:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Check docs for stale references
+        run: bash scripts/doc-audit.sh origin/${{ github.base_ref }} HEAD
