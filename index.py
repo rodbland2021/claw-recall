@@ -25,11 +25,38 @@ except ImportError:
 DB_PATH = Path(__file__).parent / "convo_memory.db"
 DEFAULT_ARCHIVE_PATH = Path.home() / ".openclaw" / "agents-archive"
 DEFAULT_SESSIONS_PATH = Path.home() / ".openclaw" / "agents"
+EXCLUDE_CONF_PATH = Path(__file__).parent / "exclude.conf"
 
 # Embedding settings
 EMBEDDING_MODEL = "text-embedding-3-small"
 EMBEDDING_BATCH_SIZE = 20  # Keep small to stay within 8192 token limit per API call
 MIN_CONTENT_LENGTH = 20  # Skip very short messages for embeddings
+
+# --- Exclusion patterns (loaded from exclude.conf if present) ---
+import fnmatch as _fnmatch
+
+_exclude_patterns: list[str] | None = None
+
+def _load_exclude_patterns() -> list[str]:
+    """Load filename glob patterns from exclude.conf (one per line, # comments)."""
+    global _exclude_patterns
+    if _exclude_patterns is not None:
+        return _exclude_patterns
+    _exclude_patterns = []
+    if EXCLUDE_CONF_PATH.exists():
+        for line in EXCLUDE_CONF_PATH.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith('#'):
+                _exclude_patterns.append(line)
+    return _exclude_patterns
+
+def is_excluded(filepath: Path) -> bool:
+    """Check if a file should be excluded from indexing based on exclude.conf patterns."""
+    name = filepath.name
+    for pattern in _load_exclude_patterns():
+        if _fnmatch.fnmatch(name, pattern):
+            return True
+    return False
 
 
 def parse_session_file(filepath: Path) -> Generator[dict, None, None]:
@@ -436,6 +463,8 @@ def index_session_file(
             Used by the /index-session endpoint for remote files.
     """
     _ensure_incremental_schema(conn)
+    if is_excluded(filepath):
+        return {'status': 'skipped', 'reason': 'excluded by exclude.conf'}
     canonical_source = source_file_override or str(filepath)
     current_size = filepath.stat().st_size
 

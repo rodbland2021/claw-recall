@@ -24,6 +24,7 @@ VALID_AGENT_FILTER = """
     AND s.agent_id NOT LIKE 'agent:%'
     AND s.agent_id NOT GLOB '[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]*'
     AND s.agent_id NOT IN ('boot', 'acompact', 'compact')
+    AND s.id NOT LIKE 'boot-%'
 """
 
 
@@ -136,7 +137,7 @@ def agents_endpoint():
             """
             params = []
             if days > 0:
-                sql += " AND s.started_at >= datetime('now', ?)"
+                sql += " AND COALESCE(s.ended_at, s.started_at) >= datetime('now', ?)"
                 params.append(f"-{days} days")
             sql += " GROUP BY norm_agent ORDER BY cnt DESC"
             rows = conn.execute(sql, params).fetchall()
@@ -465,7 +466,7 @@ def activity_endpoint():
             conn.row_factory = sqlite3.Row
 
             sql = f"""
-                SELECT s.id, s.agent_id, s.started_at, s.message_count,
+                SELECT s.id, s.agent_id, s.started_at, s.ended_at, s.message_count,
                        (SELECT content FROM messages m WHERE m.session_id = s.id AND m.role = 'user' ORDER BY m.message_index ASC LIMIT 1) as first_user_msg,
                        (SELECT content FROM messages m WHERE m.session_id = s.id AND m.role = 'assistant' ORDER BY m.message_index DESC LIMIT 1) as last_assistant_msg
                 FROM sessions s
@@ -476,9 +477,9 @@ def activity_endpoint():
                 sql += " AND s.agent_id = ? COLLATE NOCASE"
                 params.append(agent)
             if days > 0:
-                sql += " AND s.started_at >= datetime('now', ?)"
+                sql += " AND COALESCE(s.ended_at, s.started_at) >= datetime('now', ?)"
                 params.append(f"-{days} days")
-            sql += " ORDER BY s.started_at DESC LIMIT ?"
+            sql += " ORDER BY COALESCE(s.ended_at, s.started_at) DESC LIMIT ?"
             params.append(limit)
 
             rows = conn.execute(sql, params).fetchall()
@@ -491,6 +492,7 @@ def activity_endpoint():
                     "session_id": r['id'],
                     "agent": r['agent_id'],
                     "started_at": r['started_at'],
+                    "ended_at": r['ended_at'],
                     "message_count": r['message_count'],
                     "first_user_message": first_msg,
                     "last_assistant_message": last_msg,
@@ -503,7 +505,7 @@ def activity_endpoint():
             """
             count_params = []
             if days > 0:
-                count_sql += " AND s.started_at >= datetime('now', ?)"
+                count_sql += " AND COALESCE(s.ended_at, s.started_at) >= datetime('now', ?)"
                 count_params.append(f"-{days} days")
             count_sql += " GROUP BY s.agent_id ORDER BY cnt DESC"
             agent_counts = {r[0]: r[1] for r in conn.execute(count_sql, count_params).fetchall()}

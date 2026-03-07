@@ -1,0 +1,23 @@
+# Claw Recall — Exclusion Patterns
+#
+# Copy this file to 'exclude.conf' and customize for your installation.
+# Files matching these patterns are skipped during indexing.
+#
+# Format:
+#   - One filename glob pattern per line
+#   - Patterns are matched against the filename only (not the full path)
+#   - Standard glob syntax: * matches anything, ? matches one character
+#   - Lines starting with # are comments
+#   - Blank lines are ignored
+#
+# After updating this file, run the cleanup script to remove
+# already-indexed sessions that match the new patterns:
+#
+#   python3 cleanup_excluded.py [--dry-run]
+
+# OpenClaw boot check sessions (system noise, not real conversations)
+boot-*.jsonl
+
+# Compaction artifacts
+acompact-*.jsonl
+compact-*.jsonl
