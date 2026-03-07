@@ -20,6 +20,7 @@ htmlcov/
 # Environment & config
 .env
 agents.json
+exclude.conf
 
 # Logs & temp
 *.log
