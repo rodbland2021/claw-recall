@@ -1249,14 +1249,14 @@ class TestBrowseRecent:
             ("sess-boot-1", "system", "Boot sequence", _ts(now - timedelta(minutes=3)), 0),
         )
 
-        # Session 4: old session (2 hours ago, should be excluded at 30 min)
+        # Session 4: old session (90 min ago — outside 30 min window, inside 120 min window)
         conn.execute(
             "INSERT INTO sessions (id, agent_id, started_at, message_count) VALUES (?, ?, ?, ?)",
-            ("sess-old-1", "butler", _ts(now - timedelta(hours=2)), 5),
+            ("sess-old-1", "butler", _ts(now - timedelta(minutes=90)), 5),
         )
         conn.execute(
             "INSERT INTO messages (session_id, role, content, timestamp, message_index) VALUES (?, ?, ?, ?, ?)",
-            ("sess-old-1", "user", "Old message", _ts(now - timedelta(hours=2)), 0),
+            ("sess-old-1", "user", "Old message", _ts(now - timedelta(minutes=90)), 0),
         )
 
         conn.commit()
