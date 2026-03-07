@@ -26,6 +26,8 @@ exclude.conf
 *.log
 tmp/
 temp/
+_original_root/
+data/
 
 # IDE
 .vscode/
