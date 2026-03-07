@@ -37,7 +37,7 @@ def test_db(tmp_path):
     conn.execute("PRAGMA journal_mode=WAL")
 
     # Load schema from setup_db
-    from setup_db import SCHEMA
+    from claw_recall.database import SCHEMA
     conn.executescript(SCHEMA)
     conn.commit()
 
@@ -47,10 +47,12 @@ def test_db(tmp_path):
 
 @pytest.fixture
 def patched_db(test_db, monkeypatch):
-    """Patch db module to use the test database."""
+    """Patch DB_PATH in both config and database modules so get_db() uses the test DB."""
     conn, db_path = test_db
-    import db as db_module
-    monkeypatch.setattr(db_module, 'DB_PATH', db_path)
+    import claw_recall.config as config_module
+    import claw_recall.database as database_module
+    monkeypatch.setattr(config_module, 'DB_PATH', db_path)
+    monkeypatch.setattr(database_module, 'DB_PATH', db_path)
     return conn, db_path
 
 
@@ -58,7 +60,7 @@ def patched_db(test_db, monkeypatch):
 def sample_thoughts(patched_db):
     """Insert sample thoughts into the test DB for search tests."""
     conn, db_path = patched_db
-    from capture import capture_thought
+    from claw_recall.capture.thoughts import capture_thought
 
     thoughts = [
         ("User prefers dark mode across all apps", "manual", "main"),
@@ -140,7 +142,7 @@ class TestCapture:
 
     def test_basic_capture(self, patched_db):
         conn, _ = patched_db
-        from capture import capture_thought
+        from claw_recall.capture.thoughts import capture_thought
 
         result = capture_thought(
             content="Test thought",
@@ -159,7 +161,7 @@ class TestCapture:
 
     def test_capture_with_metadata(self, patched_db):
         conn, _ = patched_db
-        from capture import capture_thought
+        from claw_recall.capture.thoughts import capture_thought
 
         metadata = {"topic": "testing", "priority": "high"}
         result = capture_thought(
@@ -180,7 +182,7 @@ class TestCapture:
 
     def test_capture_empty_content(self, patched_db):
         conn, _ = patched_db
-        from capture import capture_thought
+        from claw_recall.capture.thoughts import capture_thought
 
         result = capture_thought(content="", conn=conn)
         assert result == {"error": "Empty content"}
@@ -190,7 +192,7 @@ class TestCapture:
 
     def test_capture_strips_whitespace(self, patched_db):
         conn, _ = patched_db
-        from capture import capture_thought
+        from claw_recall.capture.thoughts import capture_thought
 
         result = capture_thought(
             content="  spaces around  ",
@@ -202,7 +204,7 @@ class TestCapture:
 
     def test_capture_dedup_within_24h(self, patched_db):
         conn, _ = patched_db
-        from capture import capture_thought
+        from claw_recall.capture.thoughts import capture_thought
 
         r1 = capture_thought(content="Duplicate thought", source="test",
                              generate_embedding=False, conn=conn)
@@ -215,7 +217,7 @@ class TestCapture:
 
     def test_capture_different_content_not_dedup(self, patched_db):
         conn, _ = patched_db
-        from capture import capture_thought
+        from claw_recall.capture.thoughts import capture_thought
 
         r1 = capture_thought(content="First thought", source="test",
                              generate_embedding=False, conn=conn)
@@ -227,7 +229,7 @@ class TestCapture:
 
     def test_fts_sync_on_insert(self, patched_db):
         conn, _ = patched_db
-        from capture import capture_thought
+        from claw_recall.capture.thoughts import capture_thought
 
         capture_thought(content="searchable content here", source="test",
                         generate_embedding=False, conn=conn)
@@ -241,7 +243,7 @@ class TestCapture:
 
     def test_fts_sync_on_delete(self, patched_db):
         conn, _ = patched_db
-        from capture import capture_thought, delete_thought
+        from claw_recall.capture.thoughts import capture_thought, delete_thought
 
         result = capture_thought(content="deletable content", source="test",
                                  generate_embedding=False, conn=conn)
@@ -262,14 +264,14 @@ class TestListDelete:
 
     def test_list_thoughts(self, sample_thoughts, patched_db):
         conn, _ = patched_db
-        from capture import list_thoughts
+        from claw_recall.capture.thoughts import list_thoughts
 
         thoughts = list_thoughts(conn=conn)
         assert len(thoughts) == 6
 
     def test_list_thoughts_filter_by_source(self, sample_thoughts, patched_db):
         conn, _ = patched_db
-        from capture import list_thoughts
+        from claw_recall.capture.thoughts import list_thoughts
 
         thoughts = list_thoughts(source='gmail', conn=conn)
         assert len(thoughts) == 1
@@ -277,7 +279,7 @@ class TestListDelete:
 
     def test_list_thoughts_filter_by_agent(self, sample_thoughts, patched_db):
         conn, _ = patched_db
-        from capture import list_thoughts
+        from claw_recall.capture.thoughts import list_thoughts
 
         thoughts = list_thoughts(agent='butler', conn=conn)
         assert len(thoughts) == 1
@@ -285,7 +287,7 @@ class TestListDelete:
 
     def test_list_thoughts_limit_offset(self, sample_thoughts, patched_db):
         conn, _ = patched_db
-        from capture import list_thoughts
+        from claw_recall.capture.thoughts import list_thoughts
 
         page1 = list_thoughts(limit=3, offset=0, conn=conn)
         page2 = list_thoughts(limit=3, offset=3, conn=conn)
@@ -295,7 +297,7 @@ class TestListDelete:
 
     def test_delete_thought(self, patched_db):
         conn, _ = patched_db
-        from capture import capture_thought, delete_thought
+        from claw_recall.capture.thoughts import capture_thought, delete_thought
 
         result = capture_thought(content="to delete", source="test",
                                  generate_embedding=False, conn=conn)
@@ -311,14 +313,14 @@ class TestListDelete:
 
     def test_delete_nonexistent(self, patched_db):
         conn, _ = patched_db
-        from capture import delete_thought
+        from claw_recall.capture.thoughts import delete_thought
 
         result = delete_thought(99999, conn=conn)
         assert 'error' in result
 
     def test_thought_stats(self, sample_thoughts, patched_db):
         conn, _ = patched_db
-        from capture import thought_stats
+        from claw_recall.capture.thoughts import thought_stats
 
         stats = thought_stats(conn=conn)
         assert stats['total'] == 6
@@ -333,7 +335,7 @@ class TestBatchEmbed:
     """Test batch embedding functionality."""
 
     def test_batch_embed_no_openai(self, patched_db, monkeypatch):
-        import capture
+        import claw_recall.capture.thoughts as capture
         monkeypatch.setattr(capture, 'OPENAI_AVAILABLE', False)
         monkeypatch.setattr(capture, '_openai_client', None)
 
@@ -342,7 +344,7 @@ class TestBatchEmbed:
 
     def test_batch_embed_empty(self, patched_db):
         conn, _ = patched_db
-        from capture import batch_embed_thoughts
+        from claw_recall.capture.thoughts import batch_embed_thoughts
 
         # No thoughts without embeddings (or OpenAI unavailable)
         result = batch_embed_thoughts(conn=conn)
@@ -350,8 +352,8 @@ class TestBatchEmbed:
 
     def test_batch_embed_with_mock(self, patched_db, monkeypatch):
         conn, _ = patched_db
-        import capture
-        from capture import capture_thought, batch_embed_thoughts
+        import claw_recall.capture.thoughts as capture
+        from claw_recall.capture.thoughts import capture_thought, batch_embed_thoughts
 
         # Insert thoughts without embeddings
         r1 = capture_thought(content="batch test one for embedding", source="test",
@@ -391,7 +393,7 @@ class TestSearch:
 
     def test_keyword_search_thoughts(self, sample_thoughts, patched_db):
         conn, db_path = patched_db
-        from search import keyword_search_thoughts
+        from claw_recall.search.engine import keyword_search_thoughts
 
         results = keyword_search_thoughts(conn, "dark mode")
         assert len(results) >= 1
@@ -399,14 +401,14 @@ class TestSearch:
 
     def test_keyword_search_no_results(self, sample_thoughts, patched_db):
         conn, db_path = patched_db
-        from search import keyword_search_thoughts
+        from claw_recall.search.engine import keyword_search_thoughts
 
         results = keyword_search_thoughts(conn, "xyznonexistent")
         assert len(results) == 0
 
     def test_keyword_search_agent_filter(self, sample_thoughts, patched_db):
         conn, db_path = patched_db
-        from search import keyword_search_thoughts
+        from claw_recall.search.engine import keyword_search_thoughts
 
         results = keyword_search_thoughts(conn, "Acme", agent="butler")
         assert len(results) >= 1
@@ -422,25 +424,25 @@ class TestAutoDetect:
     """Test semantic vs keyword auto-detection."""
 
     def test_short_query_keyword(self):
-        from recall import should_use_semantic
+        from claw_recall.cli import should_use_semantic
         assert should_use_semantic("ACME42") is False
         assert should_use_semantic("act_12345") is False
 
     def test_question_semantic(self):
-        from recall import should_use_semantic
+        from claw_recall.cli import should_use_semantic
         assert should_use_semantic("what did we discuss about playbooks") is True
         assert should_use_semantic("how does the API work") is True
 
     def test_quoted_keyword(self):
-        from recall import should_use_semantic
+        from claw_recall.cli import should_use_semantic
         assert should_use_semantic('"exact phrase"') is False
 
     def test_file_path_keyword(self):
-        from recall import should_use_semantic
+        from claw_recall.cli import should_use_semantic
         assert should_use_semantic("~/repos/claw-recall/capture.py") is False
 
     def test_long_query_semantic(self):
-        from recall import should_use_semantic
+        from claw_recall.cli import should_use_semantic
         # Short ID terms in longer queries still trigger keyword
         assert should_use_semantic("Facebook ads ACME42 campaign performance") is False
         # Natural language questions should trigger semantic
@@ -453,7 +455,7 @@ class TestUnifiedSearch:
     """Test the unified search function."""
 
     def test_summary_grammar_two_parts(self):
-        from recall import unified_search
+        from claw_recall.cli import unified_search
         # Mock to test summary formatting
         results = {
             "conversations": [{"content": "test"}],
@@ -487,18 +489,18 @@ class TestCaptureSources:
     """Test external source capture (Gmail, Drive)."""
 
     def test_strip_html_basic(self):
-        from capture_sources import _strip_html
+        from claw_recall.capture.sources import _strip_html
         assert _strip_html("<p>Hello</p>") == "Hello"
         assert _strip_html("Hello<br>World") == "Hello\nWorld"
         assert _strip_html("<b>bold</b> text") == "bold text"
 
     def test_strip_html_entities(self):
-        from capture_sources import _strip_html
+        from claw_recall.capture.sources import _strip_html
         assert _strip_html("&amp; &lt; &gt;") == "& < >"
         assert _strip_html("foo&nbsp;bar") == "foo\xa0bar"  # non-breaking space
 
     def test_strip_html_style_script(self):
-        from capture_sources import _strip_html
+        from claw_recall.capture.sources import _strip_html
         html = "<style>body { color: red; }</style><p>content</p><script>alert('x')</script>"
         result = _strip_html(html)
         assert "color: red" not in result
@@ -506,14 +508,14 @@ class TestCaptureSources:
         assert "content" in result
 
     def test_strip_html_whitespace_collapse(self):
-        from capture_sources import _strip_html
+        from claw_recall.capture.sources import _strip_html
         html = "  lots   of   spaces  "
         result = _strip_html(html)
         assert "  " not in result  # No double spaces
 
     def test_is_captured(self, test_db):
         conn, _ = test_db
-        from capture_sources import _is_captured, _log_capture
+        from claw_recall.capture.sources import _is_captured, _log_capture
 
         assert _is_captured(conn, 'gmail', 'msg123', 'personal') is False
 
@@ -526,7 +528,7 @@ class TestCaptureSources:
 
     def test_log_capture_upsert(self, test_db):
         conn, _ = test_db
-        from capture_sources import _log_capture
+        from claw_recall.capture.sources import _log_capture
 
         _log_capture(conn, 'drive', 'doc1', 'personal', 1, '2026-01-01')
         conn.commit()
@@ -582,13 +584,15 @@ class TestCaptureSources:
         sys.modules['email_helper'] = mock_module
 
         # Also mock OpenAI for batch embedding
-        import capture
-        import db as db_module
+        import claw_recall.capture.thoughts as capture
+        import claw_recall.config as db_module
         monkeypatch.setattr(capture, 'OPENAI_AVAILABLE', False)
         monkeypatch.setattr(capture, '_openai_client', None)
         monkeypatch.setattr(db_module, 'DB_PATH', db_path)
+        import claw_recall.database as _db_module
+        monkeypatch.setattr(_db_module, 'DB_PATH', db_path)
 
-        import capture_sources
+        import claw_recall.capture.sources as capture_sources
 
         try:
             # Force reimport to pick up mocked email_helper
@@ -656,13 +660,15 @@ class TestCaptureSources:
         mock_module.get_service = mock_get_service
         sys.modules['google_helper'] = mock_module
 
-        import capture
-        import db as db_module
+        import claw_recall.capture.thoughts as capture
+        import claw_recall.config as db_module
         monkeypatch.setattr(capture, 'OPENAI_AVAILABLE', False)
         monkeypatch.setattr(capture, '_openai_client', None)
         monkeypatch.setattr(db_module, 'DB_PATH', db_path)
+        import claw_recall.database as _db_module
+        monkeypatch.setattr(_db_module, 'DB_PATH', db_path)
 
-        import capture_sources
+        import claw_recall.capture.sources as capture_sources
 
         try:
             result = capture_sources.poll_drive(account='personal', limit=10)
@@ -687,7 +693,7 @@ class TestCaptureSources:
     def test_poll_slack_no_token(self, patched_db, monkeypatch):
         """Test Slack polling with no token configured."""
         conn, db_path = patched_db
-        import capture_sources as cs
+        import claw_recall.capture.sources as cs
         # Force empty token — bypass _get_slack_token reading config
         monkeypatch.setattr(cs, '_get_slack_token', lambda: '')
 
@@ -698,11 +704,11 @@ class TestCaptureSources:
         """Test Slack polling with mocked slack_sdk."""
         conn, db_path = patched_db
 
-        import capture
+        import claw_recall.capture.thoughts as capture
         monkeypatch.setattr(capture, 'OPENAI_AVAILABLE', False)
         monkeypatch.setattr(capture, '_openai_client', None)
 
-        import capture_sources as cs
+        import claw_recall.capture.sources as cs
         monkeypatch.setattr(cs, '_get_slack_token', lambda: 'xoxb-test-token')
 
         # Mock slack_sdk
@@ -747,11 +753,13 @@ class TestCaptureSources:
 
     def test_capture_status(self, test_db, monkeypatch):
         conn, db_path = test_db
-        from capture_sources import _log_capture
+        from claw_recall.capture.sources import _log_capture
 
-        import db as db_module
+        import claw_recall.config as db_module
         monkeypatch.setattr(db_module, 'DB_PATH', db_path)
-        import capture_sources as cs
+        import claw_recall.database as _db_module
+        monkeypatch.setattr(_db_module, 'DB_PATH', db_path)
+        import claw_recall.capture.sources as cs
 
         _log_capture(conn, 'gmail', 'msg1', 'personal', 1)
         _log_capture(conn, 'gmail', 'msg2', 'rbs', 2)
@@ -772,12 +780,12 @@ class TestMCPServer:
 
     def test_mcp_imports(self):
         """Verify mcp_server.py can be imported."""
-        import mcp_server
+        import claw_recall.api.mcp_stdio as mcp_server
         assert hasattr(mcp_server, 'mcp')
 
     def test_mcp_has_tools(self):
         """Verify all expected tools are registered."""
-        import mcp_server
+        import claw_recall.api.mcp_stdio as mcp_server
         # FastMCP registers tools — check the decorated functions exist
         assert callable(mcp_server.search_memory)
         assert callable(mcp_server.search_thoughts)
@@ -795,13 +803,13 @@ class TestFormatting:
     """Test output formatting functions."""
 
     def test_format_unified_results_empty(self):
-        from recall import format_unified_results
+        from claw_recall.cli import format_unified_results
         results = {"conversations": [], "files": [], "thoughts": [], "summary": "Found 0 matches"}
         output = format_unified_results(results)
         assert "Found 0 matches" in output
 
     def test_format_unified_results_with_thoughts(self):
-        from recall import format_unified_results
+        from claw_recall.cli import format_unified_results
         results = {
             "conversations": [],
             "files": [],
@@ -824,7 +832,7 @@ class TestFormatting:
         assert "main" in output
 
     def test_format_unified_results_error_handling(self):
-        from recall import format_unified_results
+        from claw_recall.cli import format_unified_results
         results = {
             "conversations": [{"error": "DB connection failed"}],
             "files": [],
@@ -841,37 +849,37 @@ class TestParsing:
     """Test CLI argument parsing helpers."""
 
     def test_parse_since_minutes(self):
-        from recall import parse_since
+        from claw_recall.cli import parse_since
         assert abs(parse_since("60m") - 60/1440) < 0.001
 
     def test_parse_since_hours(self):
-        from recall import parse_since
+        from claw_recall.cli import parse_since
         assert abs(parse_since("2h") - 2/24) < 0.001
 
     def test_parse_since_days(self):
-        from recall import parse_since
+        from claw_recall.cli import parse_since
         assert parse_since("3d") == 3.0
 
     def test_parse_since_invalid(self):
-        from recall import parse_since
+        from claw_recall.cli import parse_since
         import argparse
         with pytest.raises(argparse.ArgumentTypeError):
             parse_since("invalid")
 
     def test_parse_date_iso(self):
-        from recall import parse_date
+        from claw_recall.cli import parse_date
         dt = parse_date("2026-03-05")
         assert dt.year == 2026
         assert dt.month == 3
         assert dt.day == 5
 
     def test_parse_date_today(self):
-        from recall import parse_date
+        from claw_recall.cli import parse_date
         dt = parse_date("today")
         assert dt.date() == datetime.now().date()
 
     def test_parse_date_yesterday(self):
-        from recall import parse_date
+        from claw_recall.cli import parse_date
         dt = parse_date("yesterday")
         assert dt.date() == (datetime.now() - timedelta(days=1)).date()
 
@@ -884,7 +892,7 @@ class TestIntegration:
     def test_capture_search_roundtrip(self, patched_db):
         """Capture a thought, then find it via keyword search."""
         conn, db_path = patched_db
-        from capture import capture_thought
+        from claw_recall.capture.thoughts import capture_thought
 
         capture_thought(
             content="Integration test: Shopify webhook failing on order 12345",
@@ -903,7 +911,7 @@ class TestIntegration:
     def test_capture_delete_roundtrip(self, patched_db):
         """Capture, verify, delete, verify gone."""
         conn, _ = patched_db
-        from capture import capture_thought, delete_thought, list_thoughts
+        from claw_recall.capture.thoughts import capture_thought, delete_thought, list_thoughts
 
         result = capture_thought(
             content="To be deleted thought",
@@ -923,7 +931,7 @@ class TestIntegration:
     def test_multi_source_capture(self, patched_db):
         """Capture from multiple sources and verify stats."""
         conn, _ = patched_db
-        from capture import capture_thought, thought_stats
+        from claw_recall.capture.thoughts import capture_thought, thought_stats
 
         sources = ['cli', 'http', 'mcp', 'gmail', 'drive', 'telegram']
         for source in sources:
@@ -950,38 +958,38 @@ class TestAgentAliases:
     @pytest.fixture(autouse=True)
     def _patch_aliases(self, monkeypatch):
         """Patch _AGENT_ALIASES with fictitious test names so tests are self-contained."""
-        import search
-        monkeypatch.setattr(search, '_AGENT_ALIASES', {
+        import claw_recall.search.engine as search_engine
+        monkeypatch.setattr(search_engine, '_AGENT_ALIASES', {
             'main': 'Butler',
             'claude-code': 'CodeBot',
             'butler': 'Butler',
         })
 
     def test_main_resolves_to_display_name(self):
-        from search import _resolve_agent
+        from claw_recall.search.engine import _resolve_agent
         assert _resolve_agent("main") == "Butler"
 
     def test_claude_code_resolves(self):
-        from search import _resolve_agent
+        from claw_recall.search.engine import _resolve_agent
         assert _resolve_agent("claude-code") == "CodeBot"
 
     def test_display_name_passthrough(self):
-        from search import _resolve_agent
+        from claw_recall.search.engine import _resolve_agent
         assert _resolve_agent("Butler") == "Butler"
         assert _resolve_agent("atlas") == "atlas"
 
     def test_none_passthrough(self):
-        from search import _resolve_agent
+        from claw_recall.search.engine import _resolve_agent
         assert _resolve_agent(None) is None
         assert _resolve_agent("") == ""
 
     def test_case_insensitive(self):
-        from search import _resolve_agent
+        from claw_recall.search.engine import _resolve_agent
         assert _resolve_agent("MAIN") == "Butler"
         assert _resolve_agent("Claude-Code") == "CodeBot"
 
     def test_unknown_agent_passthrough(self):
-        from search import _resolve_agent
+        from claw_recall.search.engine import _resolve_agent
         assert _resolve_agent("unknown-agent") == "unknown-agent"
 
 
@@ -991,28 +999,28 @@ class TestPathSuffix:
     """Test _extract_path_suffix helper for agent detection."""
 
     def test_cc_projects_path(self):
-        from web import _extract_path_suffix
+        from claw_recall.api.web import _extract_path_suffix
         result = _extract_path_suffix(
             "/home/testuser/.claude/projects/-mnt-c-code-hostinger/9c41e634.jsonl"
         )
         assert result == ".claude/projects/-mnt-c-code-hostinger/9c41e634.jsonl"
 
     def test_openclaw_agents_path(self):
-        from web import _extract_path_suffix
+        from claw_recall.api.web import _extract_path_suffix
         result = _extract_path_suffix(
             "/home/testuser/.openclaw/agents/main/sessions/agent-main-xxx.jsonl"
         )
         assert result == ".openclaw/agents/main/sessions/agent-main-xxx.jsonl"
 
     def test_openclaw_archive_path(self):
-        from web import _extract_path_suffix
+        from claw_recall.api.web import _extract_path_suffix
         result = _extract_path_suffix(
             "/home/testuser/.openclaw/agents-archive/main-abc-123.jsonl"
         )
         assert result == ".openclaw/agents-archive/main-abc-123.jsonl"
 
     def test_fallback_basename(self):
-        from web import _extract_path_suffix
+        from claw_recall.api.web import _extract_path_suffix
         result = _extract_path_suffix("/some/random/path/file.jsonl")
         assert result == "file.jsonl"
 
@@ -1036,7 +1044,7 @@ class TestSourceFileOverride:
         session_file = self._make_cc_session(tmp_path)
         override_path = "/home/testuser/.claude/projects/-test/abc12345-6789-abcd-ef01-234567890abc.jsonl"
 
-        from index import index_session_file
+        from claw_recall.indexing.indexer import index_session_file
         result = index_session_file(session_file, conn, source_file_override=override_path)
 
         assert result['status'] == 'indexed'
@@ -1060,7 +1068,7 @@ class TestSourceFileOverride:
         conn, _ = test_db
         session_file = self._make_cc_session(tmp_path)
 
-        from index import index_session_file
+        from claw_recall.indexing.indexer import index_session_file
         result = index_session_file(session_file, conn)
         assert result['status'] == 'indexed'
 
@@ -1073,7 +1081,7 @@ class TestSourceFileOverride:
         session_file = self._make_cc_session(tmp_path)
         override_path = "/home/testuser/.claude/projects/-test/abc12345-6789-abcd-ef01-234567890abc.jsonl"
 
-        from index import index_session_file
+        from claw_recall.indexing.indexer import index_session_file
         r1 = index_session_file(session_file, conn, source_file_override=override_path)
         assert r1['status'] == 'indexed'
 
@@ -1088,9 +1096,11 @@ class TestIndexSessionEndpoint:
     @pytest.fixture
     def client(self, test_db, monkeypatch):
         conn, db_path = test_db
-        import web
-        import db as db_module
+        import claw_recall.api.web as web
+        import claw_recall.config as db_module
         monkeypatch.setattr(db_module, 'DB_PATH', db_path)
+        import claw_recall.database as _db_module
+        monkeypatch.setattr(_db_module, 'DB_PATH', db_path)
         web.app.config['TESTING'] = True
         return web.app.test_client()
 
@@ -1255,9 +1265,11 @@ class TestBrowseRecent:
     @pytest.fixture
     def client(self, populated_db, monkeypatch):
         conn, db_path = populated_db
-        import web
-        import db as db_module
+        import claw_recall.api.web as web
+        import claw_recall.config as db_module
         monkeypatch.setattr(db_module, 'DB_PATH', db_path)
+        import claw_recall.database as _db_module
+        monkeypatch.setattr(_db_module, 'DB_PATH', db_path)
         web.app.config['TESTING'] = True
         return web.app.test_client()
 
@@ -1329,9 +1341,11 @@ class TestBrowseRecent:
     def test_browse_recent_mcp_tool(self, populated_db, monkeypatch):
         """Test the MCP tool function directly."""
         conn, db_path = populated_db
-        import db as db_module
+        import claw_recall.config as db_module
         monkeypatch.setattr(db_module, 'DB_PATH', db_path)
-        import mcp_server
+        import claw_recall.database as _db_module
+        monkeypatch.setattr(_db_module, 'DB_PATH', db_path)
+        import claw_recall.api.mcp_stdio as mcp_server
         result = mcp_server.browse_recent(minutes=30)
         assert "Recent Transcript" in result
         assert "butler" in result
@@ -1340,18 +1354,22 @@ class TestBrowseRecent:
 
     def test_browse_recent_mcp_agent_filter(self, populated_db, monkeypatch):
         conn, db_path = populated_db
-        import db as db_module
+        import claw_recall.config as db_module
         monkeypatch.setattr(db_module, 'DB_PATH', db_path)
-        import mcp_server
+        import claw_recall.database as _db_module
+        monkeypatch.setattr(_db_module, 'DB_PATH', db_path)
+        import claw_recall.api.mcp_stdio as mcp_server
         result = mcp_server.browse_recent(agent="atlas", minutes=30)
         assert "atlas" in result
         assert "Check my email" not in result  # butler's message
 
     def test_browse_recent_mcp_no_results(self, populated_db, monkeypatch):
         conn, db_path = populated_db
-        import db as db_module
+        import claw_recall.config as db_module
         monkeypatch.setattr(db_module, 'DB_PATH', db_path)
-        import mcp_server
+        import claw_recall.database as _db_module
+        monkeypatch.setattr(_db_module, 'DB_PATH', db_path)
+        import claw_recall.api.mcp_stdio as mcp_server
         result = mcp_server.browse_recent(agent="nonexistent", minutes=30)
         assert "No messages found" in result
 
@@ -1411,7 +1429,7 @@ class TestDBContextManager:
     """Test the shared db.py context manager."""
 
     def test_get_db_returns_connection(self, tmp_path):
-        from db import get_db
+        from claw_recall.database import get_db
         db_path = tmp_path / "test.db"
         with get_db(db_path) as conn:
             conn.execute("CREATE TABLE test (id INTEGER)")
@@ -1420,7 +1438,7 @@ class TestDBContextManager:
             assert conn.execute("SELECT COUNT(*) FROM test").fetchone()[0] == 1
 
     def test_get_db_closes_on_exit(self, tmp_path):
-        from db import get_db
+        from claw_recall.database import get_db
         db_path = tmp_path / "test.db"
         with get_db(db_path) as conn:
             conn.execute("CREATE TABLE test (id INTEGER)")
@@ -1430,7 +1448,7 @@ class TestDBContextManager:
             conn.execute("SELECT 1")
 
     def test_get_db_closes_on_exception(self, tmp_path):
-        from db import get_db
+        from claw_recall.database import get_db
         db_path = tmp_path / "test.db"
         captured_conn = None
         try:
@@ -1443,14 +1461,14 @@ class TestDBContextManager:
             captured_conn.execute("SELECT 1")
 
     def test_get_db_wal_mode(self, tmp_path):
-        from db import get_db
+        from claw_recall.database import get_db
         db_path = tmp_path / "test.db"
         with get_db(db_path) as conn:
             mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
             assert mode == "wal"
 
     def test_get_db_custom_busy_timeout(self, tmp_path):
-        from db import get_db
+        from claw_recall.database import get_db
         db_path = tmp_path / "test.db"
         with get_db(db_path, busy_timeout=5000) as conn:
             timeout = conn.execute("PRAGMA busy_timeout").fetchone()[0]
@@ -1501,9 +1519,11 @@ class TestWebEndpoints:
     @pytest.fixture
     def client(self, populated_db, monkeypatch):
         conn, db_path = populated_db
-        import web
-        import db as db_module
+        import claw_recall.api.web as web
+        import claw_recall.config as db_module
         monkeypatch.setattr(db_module, 'DB_PATH', db_path)
+        import claw_recall.database as _db_module
+        monkeypatch.setattr(_db_module, 'DB_PATH', db_path)
         web.app.config['TESTING'] = True
         return web.app.test_client()
 
@@ -1589,17 +1609,17 @@ class TestDeepLink:
     """Test generate_deep_link() helper."""
 
     def test_discord_deep_link(self):
-        from web import generate_deep_link
+        from claw_recall.api.web import generate_deep_link
         content = "[Discord channel id:123456789] [message_id: 987654321] Hello world"
         link = generate_deep_link(content)
         assert link == "https://discord.com/channels/@me/123456789/987654321"
 
     def test_no_message_id(self):
-        from web import generate_deep_link
+        from claw_recall.api.web import generate_deep_link
         assert generate_deep_link("just some text") is None
 
     def test_message_id_without_platform(self):
-        from web import generate_deep_link
+        from claw_recall.api.web import generate_deep_link
         assert generate_deep_link("[message_id: 12345] hello") is None
 
 
@@ -1607,24 +1627,24 @@ class TestSafeInt:
     """Test _safe_int() helper."""
 
     def test_valid_int(self):
-        from web import _safe_int
+        from claw_recall.api.web import _safe_int
         assert _safe_int("42", 0) == 42
 
     def test_default_on_invalid(self):
-        from web import _safe_int
+        from claw_recall.api.web import _safe_int
         assert _safe_int("abc", 10) == 10
         assert _safe_int(None, 5) == 5
 
     def test_lo_clamp(self):
-        from web import _safe_int
+        from claw_recall.api.web import _safe_int
         assert _safe_int("-5", 0, lo=0) == 0
 
     def test_hi_clamp(self):
-        from web import _safe_int
+        from claw_recall.api.web import _safe_int
         assert _safe_int("999", 0, hi=100) == 100
 
     def test_both_clamps(self):
-        from web import _safe_int
+        from claw_recall.api.web import _safe_int
         assert _safe_int("50", 0, lo=10, hi=100) == 50
         assert _safe_int("5", 0, lo=10, hi=100) == 10
         assert _safe_int("200", 0, lo=10, hi=100) == 100
@@ -1636,10 +1656,12 @@ class TestCaptureEndpoint:
     @pytest.fixture
     def client(self, test_db, monkeypatch):
         conn, db_path = test_db
-        import web
-        import db as db_module
-        import capture
+        import claw_recall.api.web as web
+        import claw_recall.config as db_module
+        import claw_recall.capture.thoughts as capture
         monkeypatch.setattr(db_module, 'DB_PATH', db_path)
+        import claw_recall.database as _db_module
+        monkeypatch.setattr(_db_module, 'DB_PATH', db_path)
         monkeypatch.setattr(capture, 'OPENAI_AVAILABLE', False)
         web.app.config['TESTING'] = True
         return web.app.test_client()
