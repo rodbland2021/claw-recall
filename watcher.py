@@ -25,7 +25,7 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
 sys.path.insert(0, str(Path(__file__).parent))
-from index import index_session_file, DB_PATH
+from index import index_session_file, DB_PATH, is_excluded
 
 # Directories to watch
 WATCH_DIRS = [
@@ -129,7 +129,8 @@ class SessionFileHandler(FileSystemEventHandler):
     def _should_handle(self, path: str) -> bool:
         return (path.endswith('.jsonl')
                 and '/subagents/' not in path
-                and '.deleted.' not in path)
+                and '.deleted.' not in path
+                and not is_excluded(Path(path)))
 
     def on_created(self, event):
         if not event.is_directory and self._should_handle(event.src_path):
