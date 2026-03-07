@@ -21,12 +21,7 @@ from pathlib import Path
 # Allow imports from project root when run from scripts/
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-sys.path.insert(0, str(Path(__file__).parent))
-from index import EMBEDDING_MODEL, EMBEDDING_BATCH_SIZE, MIN_CONTENT_LENGTH
-
-DB_PATH = Path(__file__).parent / "convo_memory.db"
-if not DB_PATH.exists():
-    DB_PATH = Path.home() / "shared" / "convo-memory" / "convo_memory.db"
+from claw_recall.config import EMBEDDING_MODEL, EMBEDDING_BATCH_SIZE, MIN_CONTENT_LENGTH, DB_PATH
 
 
 def main():

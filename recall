@@ -5,4 +5,4 @@ if [ -z "$OPENAI_API_KEY" ] && [ -f "$SCRIPT_DIR/.env" ]; then
     OPENAI_API_KEY=$(grep -m1 '^OPENAI_API_KEY=' "$SCRIPT_DIR/.env" | cut -d= -f2-)
     export OPENAI_API_KEY
 fi
-cd "$SCRIPT_DIR" && python3 claw-recall "$@"
+cd "$SCRIPT_DIR" && python3 -m claw_recall.cli "$@"
