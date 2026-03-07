@@ -16,8 +16,9 @@ import sqlite3
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
-from index import DB_PATH, is_excluded, _load_exclude_patterns
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from claw_recall.config import DB_PATH
+from claw_recall.indexing.indexer import is_excluded, _load_exclude_patterns
 
 
 def main():
