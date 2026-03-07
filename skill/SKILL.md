@@ -1,6 +1,6 @@
 ---
 name: claw-recall
-description: "Persistent, searchable memory for AI agents. Indexes conversation transcripts into a SQLite database with full-text and semantic search. Recovers context after compaction, searches across multiple agents, and captures external sources (Gmail, Google Drive, Slack). Use when: (1) recovering context after compaction, (2) searching past conversations, (3) finding what another agent discussed, (4) capturing insights for cross-agent knowledge sharing. NOT for: real-time chat monitoring, replacing MEMORY.md for preferences/config, or storing secrets."
+description: "Searchable conversation memory that survives context compaction. Indexes session transcripts into SQLite with full-text and semantic search so your agent can recover context after compaction, search past conversations, and find what other agents discussed. Works across multiple agents (OpenClaw + Claude Code). Also indexes Gmail, Google Drive, and Slack. Self-hosted, open source, no cloud dependency. Use when: recovering lost context, searching conversation history, cross-agent knowledge sharing. NOT for: replacing MEMORY.md or storing secrets."
 metadata:
   {
     "openclaw":
@@ -18,13 +18,13 @@ metadata:
   }
 ---
 
-# Claw Recall — Persistent, Searchable Memory for AI Agents
+# Claw Recall — Searchable Conversation Memory for AI Agents
 
-When context compaction erases what your agent was just working on, Claw Recall brings it back.
+Your agent just lost context mid-task. The decision you made an hour ago? Gone. What your other agent figured out yesterday? Unreachable. Claw Recall fixes this by indexing every conversation into a searchable database your agents can query anytime.
 
 ## The Problem
 
-AI agents forget. Context compaction drops critical decisions, cross-session knowledge vanishes, and long conversations push early context out of the window. If you run multiple agents, they can't access each other's conversations at all.
+Context compaction drops critical decisions. Cross-session knowledge vanishes. Long conversations push early context out of the window. If you run multiple agents, they can't access each other's conversations at all. MEMORY.md helps with preferences, but it can't answer "what exactly did we discuss about the API last Tuesday?"
 
 ## What Claw Recall Does
 
