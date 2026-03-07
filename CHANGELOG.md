@@ -20,8 +20,11 @@ Package refactor: all code consolidated into `claw_recall/` Python package with 
 - CLI wrapper (`recall`) updated to call `python3 -m claw_recall.cli`
 
 **Documentation**
-- README rewritten — shorter, focused on quick start, all code examples corrected
+- README rewritten for beginners — numbered Quick Start steps, verification at each stage, exact MCP config file paths for Claude Code and OpenClaw, "Keep It Running" section (systemd/screen/cron), Quick Troubleshooting table
+- Prerequisites section moved before Quick Start with platform notes (WSL/Linux/macOS)
+- MCP section explains what MCP is, what stdio vs SSE means, where config files go
 - Comprehensive installation/operations guide split into `docs/guide.md`
+- Guide Production Deployment section rewritten with step-by-step systemd setup
 - CONTRIBUTING.md updated with correct test commands
 - Internal reference doc (`claw-recall-reference`) updated with package layout
 

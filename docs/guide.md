@@ -222,11 +222,7 @@ Common models:
 
 ## Production Deployment
 
-Run as systemd services for always-on operation. Three services cover the full stack:
-
-```bash
-sudo systemctl enable --now claw-recall-watcher claw-recall-web claw-recall-mcp
-```
+For always-on operation, run Claw Recall as systemd services that auto-start on boot. Three services cover the full stack:
 
 | Service | What It Runs | Port |
 |---------|-------------|------|
@@ -234,7 +230,17 @@ sudo systemctl enable --now claw-recall-watcher claw-recall-web claw-recall-mcp
 | `claw-recall-web` | REST API + web UI | 8765 |
 | `claw-recall-mcp` | MCP SSE server for remote agents | 8766 |
 
-### Example Service Files
+### Step-by-Step Setup
+
+**1. Create your environment file** with your settings:
+
+```bash
+# Copy the example and edit it
+cp /path/to/claw-recall/.env.example /path/to/claw-recall/.env
+# Edit .env — at minimum, set OPENAI_API_KEY if you want semantic search
+```
+
+**2. Create the service files.** In each file below, replace `YOUR_USERNAME` with your Linux username and `/path/to/claw-recall` with the actual path to the cloned repo.
 
 **`/etc/systemd/system/claw-recall-web.service`:**
 ```ini
@@ -244,9 +250,9 @@ After=network.target
 
 [Service]
 Type=simple
-User=your-user
+User=YOUR_USERNAME
 WorkingDirectory=/path/to/claw-recall
-EnvironmentFile=/etc/claw-recall.env
+EnvironmentFile=/path/to/claw-recall/.env
 ExecStart=/usr/bin/python3 -m claw_recall.api.web --host 127.0.0.1 --port 8765
 Restart=always
 RestartSec=5
@@ -263,9 +269,9 @@ After=network.target
 
 [Service]
 Type=simple
-User=your-user
+User=YOUR_USERNAME
 WorkingDirectory=/path/to/claw-recall
-EnvironmentFile=/etc/claw-recall.env
+EnvironmentFile=/path/to/claw-recall/.env
 ExecStart=/usr/bin/python3 -m claw_recall.api.mcp_sse
 Restart=always
 RestartSec=5
@@ -282,9 +288,9 @@ After=network.target
 
 [Service]
 Type=simple
-User=your-user
+User=YOUR_USERNAME
 WorkingDirectory=/path/to/claw-recall
-EnvironmentFile=/etc/claw-recall.env
+EnvironmentFile=/path/to/claw-recall/.env
 ExecStart=/usr/bin/python3 -m claw_recall.indexing.watcher
 Restart=always
 RestartSec=5
@@ -293,11 +299,25 @@ RestartSec=5
 WantedBy=multi-user.target
 ```
 
-**`/etc/claw-recall.env`:**
+**3. Enable and start the services:**
+
 ```bash
-OPENAI_API_KEY=sk-your-key-here
-CLAW_RECALL_REMOTE_HOME=/home/remote-user/
+sudo systemctl daemon-reload
+sudo systemctl enable --now claw-recall-web claw-recall-mcp claw-recall-watcher
 ```
+
+**4. Verify they're running:**
+
+```bash
+sudo systemctl status claw-recall-web    # Should show "active (running)"
+sudo systemctl status claw-recall-mcp    # Should show "active (running)"
+sudo systemctl status claw-recall-watcher # Should show "active (running)"
+
+# Check logs if something went wrong:
+sudo journalctl -u claw-recall-web -n 20
+```
+
+These services will now auto-start on boot, restart if they crash, and log to the system journal.
 
 ### Health Monitoring
 

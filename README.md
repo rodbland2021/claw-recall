@@ -26,26 +26,88 @@ Claw Recall indexes all your agent conversations into a searchable SQLite databa
 
 ---
 
+## Prerequisites
+
+- **Python 3.10+** — check with `python3 --version`
+- **pip** — usually bundled with Python (`pip3 --version` to check)
+- **Git** — to clone the repo
+- **SQLite 3.35+** — bundled with Python on most systems
+- **OpenAI API key** — optional, only needed for semantic search. Keyword search works without it.
+
+> **Windows users:** Claw Recall works on Linux, macOS, and WSL (Windows Subsystem for Linux). If you're on Windows, run everything inside WSL — native Windows is not supported.
+
+---
+
 ## Quick Start
+
+### Step 1: Clone and install
 
 ```bash
 git clone https://github.com/rodbland2021/claw-recall.git
 cd claw-recall
 pip install -r requirements.txt
+```
 
-# Index your conversations
-python3 -m claw_recall.indexing.indexer --source ~/.openclaw/agents-archive/ --incremental --embeddings
+> **Tip:** Use a virtual environment to avoid package conflicts:
+> ```bash
+> python3 -m venv venv
+> source venv/bin/activate   # On WSL/macOS/Linux
+> pip install -r requirements.txt
+> ```
 
-# Search
-./recall "what did we discuss about the API integration"
+### Step 2: Index your conversations
 
-# Start the web UI + REST API
+Tell Claw Recall where your agent conversations are stored:
+
+| Platform | Session files live at |
+|----------|----------------------|
+| **OpenClaw** | `~/.openclaw/agents-archive/` (completed) and `~/.openclaw/agents/` (active) |
+| **Claude Code** | `~/.claude/projects/` |
+
+Run the indexer on your session directory:
+
+```bash
+# OpenClaw users:
+python3 -m claw_recall.indexing.indexer --source ~/.openclaw/agents-archive/ --incremental
+
+# Claude Code users:
+python3 -m claw_recall.indexing.indexer --source ~/.claude/projects/ --incremental
+```
+
+You should see output like:
+```
+Indexed 42 sessions, 1,847 messages (skipped 0 already-indexed)
+```
+
+> **Optional:** Add `--embeddings` to the command above to enable semantic search (requires an `OPENAI_API_KEY` — see [Configuration](#configuration)).
+
+### Step 3: Search
+
+The `./recall` CLI wrapper is a shortcut that runs the search tool:
+
+```bash
+# Make it executable (first time only)
+chmod +x ./recall
+
+# Search your indexed conversations
+./recall "what did we discuss about the API"
+```
+
+You should see matching messages with agent names, timestamps, and context.
+
+> **How `./recall` works:** It's a small bash script that runs `python3 -m claw_recall.cli` for you. If you prefer, you can always use `python3 -m claw_recall.cli "your query"` directly.
+
+### Step 4: Start the web UI (optional)
+
+```bash
 python3 -m claw_recall.api.web --host 127.0.0.1 --port 8765
 ```
 
-The database is created automatically on first use. No setup step needed.
+Open **http://127.0.0.1:8765** in your browser. You should see a search interface where you can browse conversations, filter by agent, and expand context around results.
 
-**Requirements:** Python 3.10+, SQLite 3.35+ (bundled with Python). Optional: OpenAI API key for semantic search.
+### Step 5: Connect your agent via MCP (optional)
+
+This is the key step — it gives your AI agent direct access to Claw Recall's memory tools. See the [MCP Tools](#mcp-tools) section below.
 
 ---
 
@@ -69,7 +131,7 @@ Claw Recall watches your agent session files, indexes every message into SQLite 
 
 ## MCP Tools
 
-Claw Recall exposes 8 tools via the [Model Context Protocol](https://modelcontextprotocol.io/):
+[MCP (Model Context Protocol)](https://modelcontextprotocol.io/) is the standard way AI agents discover and use tools. Claw Recall exposes 8 tools via MCP — once connected, your agent can search conversations, capture insights, and recover context automatically.
 
 | Tool | What It Does |
 |------|-------------|
@@ -84,32 +146,61 @@ Claw Recall exposes 8 tools via the [Model Context Protocol](https://modelcontex
 
 ### Connect a Local Agent (stdio)
 
+Use this when your agent runs **on the same machine** as Claw Recall. The agent communicates directly through stdin/stdout — no network needed.
+
+**Claude Code** — add to `~/.claude.json` (create the file if it doesn't exist):
+
 ```json
 {
   "mcpServers": {
     "claw-recall": {
       "command": "python3",
       "args": ["-m", "claw_recall.api.mcp_stdio"],
-      "env": { "PYTHONPATH": "/path/to/claw-recall" }
+      "env": { "PYTHONPATH": "/home/youruser/claw-recall" }
     }
   }
 }
 ```
 
+**Replace `/home/youruser/claw-recall`** with the actual path where you cloned the repo (run `pwd` inside the claw-recall directory to find it).
+
+After saving the file, **restart Claude Code** for the tools to appear. You can verify by asking Claude Code: *"What MCP tools do you have access to?"* — it should list `search_memory`, `browse_recent`, etc.
+
+**OpenClaw** — add to your agent config (typically `~/.openclaw/openclaw.json` or `~/.openclaw/agents/<agent>/agent/config.json`):
+
+```json
+{
+  "mcpServers": {
+    "claw-recall": {
+      "command": "python3",
+      "args": ["-m", "claw_recall.api.mcp_stdio"],
+      "env": { "PYTHONPATH": "/home/youruser/claw-recall" }
+    }
+  }
+}
+```
+
+**Other MCP clients** — any client that supports the MCP stdio transport uses the same JSON structure. Check your client's documentation for where to put MCP server configs.
+
 ### Connect a Remote Agent (SSE)
 
-Start the SSE server on the Claw Recall machine:
+Use this when your agent runs on a **different machine** from Claw Recall (e.g., Claw Recall is on a VPS, your agent is on your laptop).
+
+**Step 1:** Start the SSE server on the Claw Recall machine:
 ```bash
 python3 -m claw_recall.api.mcp_sse
 ```
 
+**Step 2:** Connect your agent to it:
+
 **Claude Code:**
 ```bash
 claude mcp add --transport sse -s user claw-recall "http://your-server:8766/sse"
-# Restart Claude Code for it to take effect
+# Replace 'your-server' with the hostname or IP of the machine running Claw Recall
+# Then restart Claude Code
 ```
 
-**Other MCP clients** (OpenClaw, mcporter, etc.):
+**OpenClaw / mcporter / other MCP clients:**
 ```json
 {
   "mcpServers": {
@@ -120,7 +211,81 @@ claude mcp add --transport sse -s user claw-recall "http://your-server:8766/sse"
 }
 ```
 
+**Replace `your-server`** with the IP address or hostname of the machine running Claw Recall. If both machines are on a VPN like Tailscale, use the Tailscale IP.
+
 > **Tip:** Claude Code stores MCP configs in `~/.claude.json` — not `~/.claude/settings.json`. If tools don't appear after restart, check for project-level overrides under `projects.<path>.mcpServers`.
+
+### Keep It Running After Reboot
+
+If you started the SSE server or web API manually, it will stop when you close your terminal or reboot. To make it persistent:
+
+**Option A: systemd (recommended for servers)** — creates a service that auto-starts on boot:
+```bash
+# Create the service file (run once)
+sudo tee /etc/systemd/system/claw-recall-web.service << 'EOF'
+[Unit]
+Description=Claw Recall Web API
+After=network.target
+
+[Service]
+Type=simple
+User=YOUR_USERNAME
+WorkingDirectory=/home/YOUR_USERNAME/claw-recall
+ExecStart=/usr/bin/python3 -m claw_recall.api.web --host 127.0.0.1 --port 8765
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Replace YOUR_USERNAME with your Linux username, then:
+sudo systemctl daemon-reload
+sudo systemctl enable --now claw-recall-web
+
+# Check it's running:
+sudo systemctl status claw-recall-web
+```
+
+Do the same for the MCP SSE server and file watcher. See the [Full Guide — Production Deployment](docs/guide.md#production-deployment) for complete service files for all three services.
+
+**Option B: screen/tmux (quick and simple):**
+```bash
+screen -S claw-recall
+python3 -m claw_recall.api.web --host 127.0.0.1 --port 8765
+# Press Ctrl+A, then D to detach. Reattach later with: screen -r claw-recall
+```
+
+**Option C: crontab @reboot (no root needed):**
+```bash
+crontab -e
+# Add this line:
+@reboot cd /home/YOUR_USERNAME/claw-recall && python3 -m claw_recall.api.web --host 127.0.0.1 --port 8765 >> /tmp/claw-recall.log 2>&1
+```
+
+---
+
+## Configuration
+
+Copy the example environment file and edit it:
+
+```bash
+cp .env.example .env
+# Edit .env with your settings (OPENAI_API_KEY, paths, etc.)
+```
+
+The `./recall` CLI and the `scripts/` tools automatically read from `.env`. For systemd services, point to it with `EnvironmentFile=/path/to/claw-recall/.env`.
+
+Key settings:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OPENAI_API_KEY` | — | Enables semantic search (~$0.02 per 30K messages). Not needed for keyword search. |
+| `CLAW_RECALL_DB` | `./convo_memory.db` | SQLite database path |
+| `CLAW_RECALL_WEB_HOST` | `127.0.0.1` | Web API bind address |
+| `CLAW_RECALL_WEB_PORT` | `8765` | Web API port |
+
+See the [Full Guide — Configuration](docs/guide.md#configuration) for all environment variables including embedding models, SSE settings, and health checks.
 
 ---
 
@@ -194,16 +359,31 @@ Force a mode with `--keyword` or `--semantic`. Works without an OpenAI key — k
 
 ---
 
+## Quick Troubleshooting
+
+| Problem | Fix |
+|---------|-----|
+| `./recall: Permission denied` | Run `chmod +x ./recall` |
+| `ModuleNotFoundError: claw_recall` | Set `PYTHONPATH` to the repo directory, or run from inside the repo |
+| MCP tools not appearing | Restart your agent after editing the config. Check the config file path (Claude Code uses `~/.claude.json`). |
+| Search returns nothing | Make sure you indexed first (Step 2). Check with `curl http://127.0.0.1:8765/status` |
+| Semantic search not working | Set `OPENAI_API_KEY` in `.env` and re-index with `--embeddings` |
+| SSE server stops when terminal closes | Use systemd, screen, or `@reboot` cron — see [Keep It Running](#keep-it-running-after-reboot) |
+
+See the [Full Guide — Troubleshooting](docs/guide.md#troubleshooting) for detailed solutions.
+
+---
+
 ## More Documentation
 
-The **[Full Guide](docs/guide.md)** covers everything you need for installation and operations:
+The **[Full Guide](docs/guide.md)** covers everything for advanced setup and operations:
 
-- [Data Ingestion](docs/guide.md#data-ingestion) — indexing conversations, external sources, backfilling
+- [Data Ingestion](docs/guide.md#data-ingestion) — real-time watching, cron indexing, remote machines, external sources
 - [Agent Names](docs/guide.md#agent-names) — detection, display names, customization
-- [Configuration](docs/guide.md#configuration) — all environment variables
-- [Local Embeddings](docs/guide.md#using-local-embeddings) — Ollama, vLLM, HuggingFace
-- [Production Deployment](docs/guide.md#production-deployment) — systemd services, health monitoring
 - [Building Shared Knowledge](docs/guide.md#building-shared-knowledge) — capture patterns for multi-agent teams
+- [Configuration](docs/guide.md#configuration) — all environment variables
+- [Local Embeddings](docs/guide.md#using-local-embeddings) — Ollama, vLLM, HuggingFace (free, no API key)
+- [Production Deployment](docs/guide.md#production-deployment) — systemd services, health monitoring, cron jobs
 - [Database Schema](docs/guide.md#database-schema) — tables and structure
 - [Project Structure](docs/guide.md#project-structure) — package layout and module reference
 - [Troubleshooting](docs/guide.md#troubleshooting) — common issues and fixes
