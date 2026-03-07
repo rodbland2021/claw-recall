@@ -22,7 +22,7 @@ index_dir() {
     local LABEL="$2"
     local EXTRA="$3"
     if [ ! -d "$DIR" ]; then return; fi
-    OUTPUT=$(python3 index.py --source "$DIR" --incremental --embeddings $EXTRA 2>&1)
+    OUTPUT=$(python3 -m claw_recall.indexing.indexer --source "$DIR" --incremental --embeddings $EXTRA 2>&1)
     INDEXED=$(echo "$OUTPUT" | grep -oP 'Indexed: \K\d+')
     ERRORS=$(echo "$OUTPUT" | grep -oP 'Errors: \K\d+')
     [ -n "$INDEXED" ] && TOTAL_INDEXED=$((TOTAL_INDEXED + INDEXED))

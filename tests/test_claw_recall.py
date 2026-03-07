@@ -1381,9 +1381,9 @@ class TestWatcherHelpers:
     def _load_watcher(self):
         """Import the hyphenated module name via importlib."""
         import importlib.util
-        watcher_path = Path(__file__).parent.parent / "cc-session-watcher.py"
+        watcher_path = Path(__file__).parent.parent / "scripts" / "cc_session_watcher.py"
         if not watcher_path.exists():
-            pytest.skip("cc-session-watcher.py not found")
+            pytest.skip("scripts/cc_session_watcher.py not found")
         spec = importlib.util.spec_from_file_location(
             "cc_session_watcher",
             str(watcher_path),
