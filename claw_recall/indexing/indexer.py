@@ -31,6 +31,7 @@ from claw_recall.config import (
     EMBEDDING_BATCH_SIZE,
     MIN_CONTENT_LENGTH,
     AGENT_NAME_MAP,
+    redact_secrets,
 )
 
 # --- Exclusion patterns (loaded from exclude.conf if present) ---
@@ -373,6 +374,9 @@ def extract_messages(filepath: Path, start_offset: int = 0, start_index: int = 0
                 content = CC_SYSTEM_TAG_RE.sub('', content).strip()
                 if not content:
                     continue
+
+            # Redact secrets before storing
+            content = redact_secrets(content)
 
             timestamp = _parse_timestamp(entry)
             if timestamp is None:
