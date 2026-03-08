@@ -1,0 +1,62 @@
+#!/bin/bash
+# Convenience wrapper for moderation.py
+# Usage: mod <command> [args...]
+# Examples:
+#   mod timeout <user_id> 1h "spamming"
+#   mod warn <user_id> "off-topic"
+#   mod strikes <user_id>
+#   mod purge <channel_id> 10
+#   mod member-info <user_id>
+#   mod summary [--hours 24]
+#   mod raid-check
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+GUILD="1479309142060695664"
+
+case "$1" in
+    timeout|ban|kick|warn)
+        python3 "$SCRIPT_DIR/moderation.py" "$1" "$GUILD" "$2" "${@:3}"
+        ;;
+    untimeout|unban)
+        python3 "$SCRIPT_DIR/moderation.py" "$1" "$GUILD" "$2" "${@:3}"
+        ;;
+    strikes|member-info)
+        python3 "$SCRIPT_DIR/moderation.py" "$1" "$GUILD" "$2"
+        ;;
+    purge)
+        python3 "$SCRIPT_DIR/moderation.py" purge "$2" "$3"
+        ;;
+    summary|mod-summary)
+        python3 "$SCRIPT_DIR/moderation.py" mod-summary "$GUILD" "${@:2}"
+        ;;
+    raid-check|raid)
+        python3 "$SCRIPT_DIR/moderation.py" raid-check "$GUILD" "${@:2}"
+        ;;
+    log-join)
+        python3 "$SCRIPT_DIR/moderation.py" log-join "$GUILD" "$2"
+        ;;
+    has-role)
+        python3 "$SCRIPT_DIR/moderation.py" has-role "$GUILD" "$2" "$3"
+        ;;
+    *)
+        echo "Claw Recall Moderation"
+        echo ""
+        echo "Usage: mod <command> [args...]"
+        echo ""
+        echo "Commands:"
+        echo "  timeout <user_id> <duration> <reason>  Timeout a user (1m/5m/1h/1d/7d/28d)"
+        echo "  untimeout <user_id>                     Remove timeout"
+        echo "  ban <user_id> <reason>                  Ban a user"
+        echo "  unban <user_id>                         Unban a user"
+        echo "  kick <user_id> <reason>                 Kick a user"
+        echo "  warn <user_id> <reason>                 Issue a warning (DB only)"
+        echo "  strikes <user_id>                       Check user's history"
+        echo "  purge <channel_id> <count>              Delete last N messages"
+        echo "  member-info <user_id>                   Get user info"
+        echo "  summary [--hours N]                     Mod summary (default 24h)"
+        echo "  raid-check                              Check for raid patterns"
+        echo "  has-role <user_id> <role_id>            Check if user has role"
+        echo ""
+        echo "Guild: $GUILD (Claw Recall)"
+        ;;
+esac
