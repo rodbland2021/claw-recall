@@ -15,7 +15,7 @@ from datetime import datetime
 from typing import Optional
 
 from claw_recall.database import get_db
-from claw_recall.config import DB_PATH, EMBEDDING_MODEL, MIN_CONTENT_LENGTH
+from claw_recall.config import DB_PATH, EMBEDDING_MODEL, MIN_CONTENT_LENGTH, redact_secrets
 
 # Optional: OpenAI for embeddings
 try:
@@ -78,6 +78,9 @@ def capture_thought(
     content = content.strip()
     if not content:
         return {"error": "Empty content"}
+
+    # Redact secrets before storing
+    content = redact_secrets(content)
 
     metadata_json = json.dumps(metadata or {})
 
