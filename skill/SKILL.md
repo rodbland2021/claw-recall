@@ -13,7 +13,7 @@ metadata:
         ],
         "tags": ["memory", "search", "recall", "conversation", "context", "compaction", "multi-agent"],
         "homepage": "https://github.com/rodbland2021/claw-recall",
-        "community": "https://discord.gg/4wGTVa9Bt6"
+        "community": "https://discord.gg/D7YcxVpQAB"
       }
   }
 ---
@@ -157,6 +157,6 @@ All data is stored locally in a SQLite database. Keyword search uses FTS5 (zero 
 ## Links
 
 - **GitHub**: https://github.com/rodbland2021/claw-recall
-- **Discord**: https://discord.gg/4wGTVa9Bt6
+- **Discord**: https://discord.gg/D7YcxVpQAB
 - **Full Guide**: https://github.com/rodbland2021/claw-recall/blob/master/docs/guide.md
 - **Changelog**: https://github.com/rodbland2021/claw-recall/blob/master/CHANGELOG.md

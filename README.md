@@ -1,7 +1,7 @@
 # Claw Recall
 
 [![Tests](https://github.com/rodbland2021/claw-recall/actions/workflows/test.yml/badge.svg)](https://github.com/rodbland2021/claw-recall/actions/workflows/test.yml)
-[![Discord](https://img.shields.io/discord/1479309142060695664?color=5865F2&logo=discord&logoColor=white&label=Discord)](https://discord.gg/4wGTVa9Bt6)
+[![Discord](https://img.shields.io/discord/1479309142060695664?color=5865F2&logo=discord&logoColor=white&label=Discord)](https://discord.gg/D7YcxVpQAB)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-2.2.0-blue)](CHANGELOG.md)
 
@@ -22,7 +22,7 @@ Claw Recall indexes all your agent conversations into a searchable SQLite databa
 
 **[Quick Start](#quick-start)** | **[How It Works](#how-it-works)** | **[MCP Tools](#mcp-tools)** | **[CLI](#cli-reference)** | **[REST API](#rest-api)** | **[Full Guide](docs/guide.md)** | **[Community](#community)**
 
-[Changelog](CHANGELOG.md) | [Discord](https://discord.gg/4wGTVa9Bt6) | [Contributing](CONTRIBUTING.md)
+[Changelog](CHANGELOG.md) | [Discord](https://discord.gg/D7YcxVpQAB) | [Contributing](CONTRIBUTING.md)
 
 ---
 
@@ -393,7 +393,7 @@ The **[Full Guide](docs/guide.md)** covers everything for advanced setup and ope
 
 ## Community
 
-- [Discord](https://discord.gg/4wGTVa9Bt6) — setup help, feature requests, show off your config
+- [Discord](https://discord.gg/D7YcxVpQAB) — setup help, feature requests, show off your config
 - [GitHub Issues](https://github.com/rodbland2021/claw-recall/issues) — bugs and feature requests
 - [Contributing Guide](CONTRIBUTING.md) — how to help
 

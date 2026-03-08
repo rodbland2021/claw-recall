@@ -32,7 +32,7 @@ Thanks for your interest in contributing! Whether it's a bug fix, new feature, d
 - Add new test cases to `tests/test_claw_recall.py`
 
 ### 💬 Community
-- Help others in [Discord](https://discord.gg/4wGTVa9Bt6)
+- Help others in [Discord](https://discord.gg/D7YcxVpQAB)
 - Answer questions in #support
 - Share your setup in #show-and-tell
 
@@ -64,4 +64,4 @@ python3 -m claw_recall.indexing.watcher
 
 ## Questions?
 
-Open an issue or ask in [Discord #support](https://discord.gg/4wGTVa9Bt6).
+Open an issue or ask in [Discord #support](https://discord.gg/D7YcxVpQAB).
