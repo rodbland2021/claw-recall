@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.2.0] — 2026-03-08
+
+### Added
+- **Secret redaction** — API keys, OAuth tokens, passwords, and other sensitive values are automatically stripped from content before it enters the database. Covers all ingestion paths: session indexing, thought capture, Gmail, Drive, Slack, and HTTP endpoints.
+- `redact_secrets()` function in `config.py` with 18 built-in pattern categories (Google OAuth, Tailscale, AWS, Slack, GitHub, OpenAI, Anthropic, Stripe, SSH keys, connection strings, and more)
+- Custom redaction patterns via `redact_patterns.conf` (one regex per line, auto-loaded at startup)
+- `scripts/redact_historical.py` migration script for scanning and cleaning existing database records (supports dry-run mode)
+
+---
+
 ## [2.1.1] — 2026-03-08
 
 ### Fixed
