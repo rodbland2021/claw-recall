@@ -1,0 +1,36 @@
+# Custom Secret Redaction Patterns
+# ================================
+# Add one regex pattern per line. Lines starting with # are comments.
+# Patterns are case-insensitive and applied to all indexed content.
+#
+# Built-in patterns (18 categories) are already included:
+#   - Google OAuth tokens, refresh tokens, client secrets
+#   - AWS access keys and secret keys
+#   - OpenAI API keys (sk-...)
+#   - Anthropic API keys (sk-ant-...)
+#   - Slack tokens (xoxb-, xoxp-, xoxa-, xoxr-)
+#   - GitHub tokens (ghp_, gho_, ghu_, ghs_, ghr_)
+#   - Stripe keys (sk_live_, sk_test_, pk_live_, pk_test_)
+#   - Tailscale auth keys (tskey-)
+#   - SSH private keys (-----BEGIN ... PRIVATE KEY-----)
+#   - Database connection strings (postgres://, mysql://, mongodb://)
+#   - Bearer tokens (Bearer ...)
+#   - Basic auth headers (Basic ...)
+#   - Generic API keys (api[_-]?key patterns)
+#   - Generic passwords (password[=:] patterns)
+#   - Generic secrets (secret[=:] patterns)
+#   - Generic tokens (token[=:] patterns)
+#   - JWT tokens (eyJ...)
+#   - Webhook URLs with tokens
+#
+# Add your custom patterns below:
+# --------------------------------
+
+# Example: Company-specific API keys
+# ACME-[A-Za-z0-9]{32}
+
+# Example: Internal service tokens
+# svc_[a-zA-Z0-9]{40}
+
+# Example: Custom webhook secrets
+# whsec_[a-zA-Z0-9]{32}
