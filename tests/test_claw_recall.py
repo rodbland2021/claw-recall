@@ -1686,5 +1686,195 @@ class TestCaptureEndpoint:
         assert response.status_code == 400
 
 
+# ─── Secret Redaction Tests ───────────────────────────────────────────────────
+
+class TestRedactSecrets:
+    """Tests for the redact_secrets() function in config.py."""
+
+    def test_google_oauth_client_secret(self):
+        from claw_recall.config import redact_secrets
+        text = "client_secret is GOCSPX-FakeTestValueForUnitTestingXyz"
+        result = redact_secrets(text)
+        assert "GOCSPX-" not in result
+        assert "[REDACTED]" in result
+
+    def test_google_oauth_client_id(self):
+        from claw_recall.config import redact_secrets
+        text = "client_id = 999999999999-faketestvalueforunitesting1234.apps.googleusercontent.com"
+        result = redact_secrets(text)
+        assert "999999999999-fake" not in result
+        assert "[REDACTED]" in result
+
+    def test_tailscale_api_key(self):
+        from claw_recall.config import redact_secrets
+        text = "Using tskey-api-k12345abcdef-ABCDEFGHIJKLMNOP for auth"
+        result = redact_secrets(text)
+        assert "tskey-api-" not in result
+        assert "[REDACTED]" in result
+
+    def test_tailscale_auth_key(self):
+        from claw_recall.config import redact_secrets
+        text = "auth key is tskey-auth-k12345abcdef-ABCDEFGHIJKLMNOP"
+        result = redact_secrets(text)
+        assert "tskey-auth-" not in result
+        assert "[REDACTED]" in result
+
+    def test_aws_access_key(self):
+        from claw_recall.config import redact_secrets
+        text = "AWS key: AKIAIOSFODNN7EXAMPLE"
+        result = redact_secrets(text)
+        assert "AKIAIOSFODNN7EXAMPLE" not in result
+        assert "[REDACTED]" in result
+
+    def test_password_pattern(self):
+        from claw_recall.config import redact_secrets
+        text = 'password = "my_super_secret_password123"'
+        result = redact_secrets(text)
+        assert "my_super_secret_password123" not in result
+        assert "[REDACTED]" in result
+
+    def test_bearer_token(self):
+        from claw_recall.config import redact_secrets
+        text = 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.abcdef'
+        result = redact_secrets(text)
+        assert "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9" not in result
+        assert "[REDACTED]" in result
+
+    def test_api_key_pattern(self):
+        from claw_recall.config import redact_secrets
+        text = "api_key=sk-1234567890abcdefghijklmnop"
+        result = redact_secrets(text)
+        assert "sk-1234567890abcdefghijklmnop" not in result
+        assert "[REDACTED]" in result
+
+    def test_openai_key(self):
+        from claw_recall.config import redact_secrets
+        text = "OPENAI_API_KEY=sk-proj1234567890abcdefghij"
+        result = redact_secrets(text)
+        assert "sk-proj1234567890abcdefghij" not in result
+
+    def test_slack_token(self):
+        from claw_recall.config import redact_secrets
+        text = "using xoxb-1234567890-abcdefghij for Slack"
+        result = redact_secrets(text)
+        assert "xoxb-1234567890-abcdefghij" not in result
+        assert "[REDACTED]" in result
+
+    def test_github_token(self):
+        from claw_recall.config import redact_secrets
+        text = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefgh"
+        result = redact_secrets(text)
+        assert "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ" not in result
+        assert "[REDACTED]" in result
+
+    def test_ssh_private_key(self):
+        from claw_recall.config import redact_secrets
+        text = "-----BEGIN RSA PRIVATE KEY-----\nMIIE..."
+        result = redact_secrets(text)
+        assert "-----BEGIN RSA PRIVATE KEY-----" not in result
+        assert "[REDACTED]" in result
+
+    def test_connection_string(self):
+        from claw_recall.config import redact_secrets
+        text = "postgresql://admin:s3cret_passw0rd@db.example.com:5432/mydb"
+        result = redact_secrets(text)
+        assert "s3cret_passw0rd" not in result
+        assert "[REDACTED]" in result
+
+    def test_cookie_secret(self):
+        from claw_recall.config import redact_secrets
+        text = "COOKIE_SECRET=ZKU690b1HJR2-tQx4xbojEBv_Di3I83nvggm9A8sk0w="
+        result = redact_secrets(text)
+        assert "ZKU690b1HJR2" not in result
+        assert "[REDACTED]" in result
+
+    def test_stripe_key(self):
+        from claw_recall.config import redact_secrets
+        text = "sk_test_FakeTestValueForUnitTests"
+        result = redact_secrets(text)
+        assert "sk_test_FakeTestValueForUnitTests" not in result
+        assert "[REDACTED]" in result
+
+    def test_normal_text_unchanged(self):
+        from claw_recall.config import redact_secrets
+        text = "Hello, this is a normal conversation about API design patterns."
+        result = redact_secrets(text)
+        assert result == text
+
+    def test_empty_string(self):
+        from claw_recall.config import redact_secrets
+        assert redact_secrets("") == ""
+        assert redact_secrets(None) is None
+
+    def test_multiple_secrets_in_one_text(self):
+        from claw_recall.config import redact_secrets
+        text = (
+            "client_secret is GOCSPX-FakeTestValueForUnitTestingXyz "
+            "and the key is tskey-api-k12345abcdef-ABCDEFGHIJKLMNOP"
+        )
+        result = redact_secrets(text)
+        assert "GOCSPX-" not in result
+        assert "tskey-api-" not in result
+        assert result.count("[REDACTED]") == 2
+
+    def test_x_agent_token(self):
+        from claw_recall.config import redact_secrets
+        text = 'X-Agent-Token: 3UbVilcb0TXzc6yfMeeRgqK3j0ahBFGP'
+        result = redact_secrets(text)
+        assert "3UbVilcb0TXzc6yfMeeRgqK3j0ahBFGP" not in result
+        assert "[REDACTED]" in result
+
+
+class TestRedactInPipeline:
+    """Test that redaction is integrated into the indexing and capture pipelines."""
+
+    def test_messages_redacted_on_index(self, test_db, tmp_path):
+        """Verify secrets in session messages are redacted during indexing."""
+        conn, db_path = test_db
+
+        # Create a session file with a secret
+        session_file = tmp_path / "test-session.jsonl"
+        session_file.write_text(
+            json.dumps({
+                "type": "message",
+                "timestamp": "2026-03-08T10:00:00Z",
+                "message": {
+                    "role": "user",
+                    "content": "My API key is GOCSPX-FakeTestValueForUnitTestingXyz"
+                }
+            }) + "\n"
+        )
+
+        from claw_recall.indexing.indexer import index_session_file
+        result = index_session_file(session_file, conn)
+        assert result['status'] == 'indexed'
+
+        # Verify the stored content has the secret redacted
+        row = conn.execute("SELECT content FROM messages WHERE session_id = ?",
+                          (session_file.stem,)).fetchone()
+        assert row is not None
+        assert "GOCSPX-" not in row[0]
+        assert "[REDACTED]" in row[0]
+
+    def test_thoughts_redacted_on_capture(self, patched_db):
+        """Verify secrets in thoughts are redacted during capture."""
+        conn, db_path = patched_db
+
+        from claw_recall.capture.thoughts import capture_thought
+        result = capture_thought(
+            content="Remember: password = super_secret_value_123",
+            source="test",
+            generate_embedding=False,
+            conn=conn,
+        )
+        assert "error" not in result
+
+        row = conn.execute("SELECT content FROM thoughts WHERE id = ?",
+                          (result["id"],)).fetchone()
+        assert row is not None
+        assert "super_secret_value_123" not in row[0]
+        assert "[REDACTED]" in row[0]
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
