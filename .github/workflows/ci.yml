@@ -1,0 +1,98 @@
+# Standard CI workflow for Rod's VPS apps
+# Copy to .github/workflows/ci.yml in each repo
+#
+# What it checks:
+#   1. ruff F821 — undefined Python names (matches pre-commit hook)
+#   2. py_compile — syntax validation on all .py files
+#   3. pytest — runs tests/ if present (gracefully handles missing VPS-only deps)
+#   4. JS validation — node --check on inline <script> tags in static/*.html
+#
+# ⚠️ IMPORTANT FOR AGENTS:
+#   These checks catch REAL bugs (undefined names, syntax errors, broken tests).
+#   Do NOT expand ruff rules beyond F821. Do NOT chase style/presentation issues.
+#   If CI fails due to a missing VPS-only dependency (e.g. sqlite_safe), the
+#   stub step below handles it — do NOT refactor app imports to "fix" CI.
+#
+# Runs on: push to main/master, pull requests to main/master
+
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Ruff lint (undefined names only)
+        run: ruff check --select F821 .
+
+      - name: Syntax check Python files
+        run: |
+          find . -name '*.py' -not -path './venv/*' -not -path './.git/*' | while read f; do
+            python -m py_compile "$f" 2>&1 || { echo "❌ Syntax error in $f"; exit 1; }
+          done
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt 2>/dev/null || true
+          pip install pytest
+
+      - name: Stub VPS-only shared libraries
+        run: |
+          # sqlite_safe is a VPS-only monkey-patch library at ~/shared/lib/
+          # that isn't in any repo. Create a minimal stub so imports don't fail.
+          mkdir -p /tmp/vps-stubs
+          echo '"""CI stub for sqlite_safe — VPS-only library not in this repo."""' > /tmp/vps-stubs/sqlite_safe.py
+          echo "PYTHONPATH=/tmp/vps-stubs:${PYTHONPATH:-}" >> "$GITHUB_ENV"
+
+      - name: Run tests
+        if: hashFiles('tests/') != ''
+        # continue-on-error: tests may need VPS-only config/services.
+        # Ruff + py_compile + JS validation are the hard gates.
+        continue-on-error: true
+        run: python -m pytest tests/ -v -W ignore::pytest.PytestUnraisableExceptionWarning
+
+      - name: JS validation (inline scripts)
+        run: |
+          ERRORS=0
+          # Only check static/*.html — templates/*.html may contain Jinja2 {{ }}
+          # syntax that isn't valid JS until rendered server-side.
+          for f in static/*.html; do
+            [ -f "$f" ] || continue
+            python3 -c "
+          import re, sys
+          html = open('$f').read()
+          scripts = re.findall(r'<script(?![^>]*src=)[^>]*>(.*?)</script>', html, re.DOTALL)
+          for i, s in enumerate(scripts):
+              if s.strip():
+                  with open(f'/tmp/check_{i}.js', 'w') as out:
+                      out.write(s)
+          " || true
+            for js in /tmp/check_*.js; do
+              [ -f "$js" ] || continue
+              if ! node --check "$js" 2>&1; then
+                echo "❌ JS error in $f"
+                ERRORS=$((ERRORS + 1))
+              fi
+              rm -f "$js"
+            done
+          done
+          [ "$ERRORS" -eq 0 ] || exit 1
