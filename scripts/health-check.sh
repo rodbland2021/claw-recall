@@ -71,9 +71,9 @@ else
     if [ "$CONVO_COUNT" -eq 0 ]; then
         FAILURES="${FAILURES}[CRITICAL] Search returns 0 results — service may need restart\n"
         log "FAIL: Search returned 0 results (stale process?)"
-        # Auto-restart the web service to recover
-        sudo systemctl restart claw-recall-web 2>/dev/null
-        log "AUTO-RESTART: claw-recall-web restarted"
+        # Auto-restart both services to recover (MCP has the same stale-process risk)
+        sudo systemctl restart claw-recall-web claw-recall-mcp 2>/dev/null
+        log "AUTO-RESTART: claw-recall-web + claw-recall-mcp restarted"
     else
         log "OK: Search returning results ($CONVO_COUNT)"
     fi

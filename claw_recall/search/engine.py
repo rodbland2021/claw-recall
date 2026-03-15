@@ -5,6 +5,7 @@ Search past conversations using keywords or semantic similarity.
 """
 
 import gc
+import os
 import sqlite3
 import time as _time
 import threading
@@ -220,23 +221,41 @@ def keyword_search(
 
 
 def _save_cache_to_disk():
-    """Save the embedding cache to disk as numpy files for fast reload."""
+    """Save the embedding cache to disk as numpy files for fast reload.
+
+    Uses atomic writes (temp file + os.replace) to prevent corruption
+    if two processes save simultaneously.
+    """
     try:
         if _embedding_cache["matrix"] is None or _embedding_cache["matrix"].size == 0:
             return
         _CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        np.save(str(_CACHE_MATRIX_FILE), _embedding_cache["matrix"])
-        np.save(str(_CACHE_MSGIDS_FILE), _embedding_cache["msg_ids"])
-        # Metadata is a list of tuples — save as structured array
+
+        # Atomic writes: save to temp files, then rename
+        import tempfile
+        with tempfile.NamedTemporaryFile(dir=_CACHE_DIR, suffix=".npy", delete=False) as tmp:
+            np.save(tmp, _embedding_cache["matrix"])
+            tmp_matrix = tmp.name
+        os.replace(tmp_matrix, str(_CACHE_MATRIX_FILE))
+
+        with tempfile.NamedTemporaryFile(dir=_CACHE_DIR, suffix=".npy", delete=False) as tmp:
+            np.save(tmp, _embedding_cache["msg_ids"])
+            tmp_ids = tmp.name
+        os.replace(tmp_ids, str(_CACHE_MSGIDS_FILE))
+
         if _embedding_cache["metadata"]:
             meta_array = np.array(
                 _embedding_cache["metadata"],
                 dtype=[('msg_id', 'i8'), ('session_id', 'U64'), ('agent_id', 'U32'),
-                       ('channel', 'U32'), ('role', 'U16'), ('timestamp', 'U32')]
+                       ('channel', 'U32'), ('role', 'U16'), ('timestamp', 'U40')]
             )
-            np.save(str(_CACHE_META_FILE), meta_array)
-        # Write stamp: row count for cache validity check
-        _CACHE_STAMP_FILE.write_text(str(_embedding_cache["count"]))
+            with tempfile.NamedTemporaryFile(dir=_CACHE_DIR, suffix=".npy", delete=False) as tmp:
+                np.save(tmp, meta_array)
+                tmp_meta = tmp.name
+            os.replace(tmp_meta, str(_CACHE_META_FILE))
+
+        # Stamp written last — if this exists, all .npy files are complete
+        _CACHE_STAMP_FILE.write_text(str(_embedding_cache["matrix"].shape[0]))
         n = _embedding_cache["matrix"].shape[0]
         print(f"[search] Embedding cache saved to disk: {n} embeddings")
     except Exception as e:
@@ -273,7 +292,7 @@ def _load_cache_from_disk(expected_count: int) -> bool:
             "msg_ids": msg_ids,
             "metadata": metadata,
             "norms": norms,
-            "count": expected_count,
+            "count": matrix.shape[0],  # actual loaded count, not DB count
             "filters_hash": f"None|None|None|None|None",
             "last_access": _time.monotonic(),
         }
