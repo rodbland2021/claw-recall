@@ -62,6 +62,21 @@ else
     else
         log "OK: Web API HTTP 200"
     fi
+
+    # 1d. Search actually returns results? (catches stale-process bugs)
+    # Use a common word that should always have hits in 1.1M+ messages.
+    SEARCH_URL="${WEB_URL%/status}/search?q=order&limit=1&force_keyword=true"
+    SEARCH_RESULT=$(curl -sf --connect-timeout 5 --max-time 15 "$SEARCH_URL" 2>/dev/null || echo '{"conversations":[]}')
+    CONVO_COUNT=$(echo "$SEARCH_RESULT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d.get('conversations',[])))" 2>/dev/null || echo "0")
+    if [ "$CONVO_COUNT" -eq 0 ]; then
+        FAILURES="${FAILURES}[CRITICAL] Search returns 0 results — service may need restart\n"
+        log "FAIL: Search returned 0 results (stale process?)"
+        # Auto-restart the web service to recover
+        sudo systemctl restart claw-recall-web 2>/dev/null
+        log "AUTO-RESTART: claw-recall-web restarted"
+    else
+        log "OK: Search returning results ($CONVO_COUNT)"
+    fi
 fi
 
 # ── CHECK 2: Indexing pipeline health (IMPORTANT) ──

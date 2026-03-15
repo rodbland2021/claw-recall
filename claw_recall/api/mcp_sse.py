@@ -54,5 +54,11 @@ if __name__ == "__main__":
     mcp.settings.transport_security.allowed_hosts = allowed
     mcp.settings.transport_security.allowed_origins = ["*"]
 
+    # Preload embedding cache in background to avoid cold-start latency.
+    # Without this, the first semantic search after startup (or after 4h idle)
+    # takes ~100s to rebuild the cache, during which searches return empty.
+    from claw_recall.search.engine import preload_embedding_cache
+    preload_embedding_cache()
+
     print(f"Claw Recall MCP (Streamable HTTP) running at http://{host}:{port}/mcp")
     mcp.run(transport="streamable-http")
