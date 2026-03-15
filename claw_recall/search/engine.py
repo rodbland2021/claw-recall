@@ -17,6 +17,13 @@ from dataclasses import dataclass
 from claw_recall.database import get_db
 from claw_recall.config import DB_PATH, EMBEDDING_MODEL, EMBEDDING_DIM, AGENT_NAME_MAP
 
+# Disk cache for embedding matrix — avoids ~80s SQLite rebuild on startup
+_CACHE_DIR = DB_PATH.parent / ".embedding_cache"
+_CACHE_MATRIX_FILE = _CACHE_DIR / "matrix.npy"
+_CACHE_MSGIDS_FILE = _CACHE_DIR / "msg_ids.npy"
+_CACHE_META_FILE = _CACHE_DIR / "metadata.npy"
+_CACHE_STAMP_FILE = _CACHE_DIR / "stamp.txt"  # row count + DB mtime
+
 # Optional: OpenAI for semantic search
 try:
     from openai import OpenAI
@@ -212,6 +219,72 @@ def keyword_search(
     return results
 
 
+def _save_cache_to_disk():
+    """Save the embedding cache to disk as numpy files for fast reload."""
+    try:
+        if _embedding_cache["matrix"] is None or _embedding_cache["matrix"].size == 0:
+            return
+        _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        np.save(str(_CACHE_MATRIX_FILE), _embedding_cache["matrix"])
+        np.save(str(_CACHE_MSGIDS_FILE), _embedding_cache["msg_ids"])
+        # Metadata is a list of tuples — save as structured array
+        if _embedding_cache["metadata"]:
+            meta_array = np.array(
+                _embedding_cache["metadata"],
+                dtype=[('msg_id', 'i8'), ('session_id', 'U64'), ('agent_id', 'U32'),
+                       ('channel', 'U32'), ('role', 'U16'), ('timestamp', 'U32')]
+            )
+            np.save(str(_CACHE_META_FILE), meta_array)
+        # Write stamp: row count for cache validity check
+        _CACHE_STAMP_FILE.write_text(str(_embedding_cache["count"]))
+        n = _embedding_cache["matrix"].shape[0]
+        print(f"[search] Embedding cache saved to disk: {n} embeddings")
+    except Exception as e:
+        print(f"[search] Failed to save cache to disk: {e}")
+
+
+def _load_cache_from_disk(expected_count: int) -> bool:
+    """Load embedding cache from disk if valid. Returns True on success."""
+    global _embedding_cache
+    try:
+        if not _CACHE_MATRIX_FILE.exists() or not _CACHE_STAMP_FILE.exists():
+            return False
+        # Check if cache is close enough to current DB row count
+        # Allow up to 1% drift before forcing a rebuild (new embeddings trickle in continuously)
+        stamp = int(_CACHE_STAMP_FILE.read_text().strip())
+        drift = abs(expected_count - stamp)
+        drift_pct = (drift / max(stamp, 1)) * 100
+        if drift_pct > 1.0:
+            print(f"[search] Disk cache stale ({stamp} vs {expected_count}, {drift_pct:.1f}% drift) — rebuilding")
+            return False
+
+        t0 = _time.monotonic()
+        matrix = np.load(str(_CACHE_MATRIX_FILE))
+        msg_ids = np.load(str(_CACHE_MSGIDS_FILE))
+        norms = np.linalg.norm(matrix, axis=1)
+
+        metadata = []
+        if _CACHE_META_FILE.exists():
+            meta_array = np.load(str(_CACHE_META_FILE), allow_pickle=True)
+            metadata = [tuple(row) for row in meta_array]
+
+        _embedding_cache = {
+            "matrix": matrix,
+            "msg_ids": msg_ids,
+            "metadata": metadata,
+            "norms": norms,
+            "count": expected_count,
+            "filters_hash": f"None|None|None|None|None",
+            "last_access": _time.monotonic(),
+        }
+        elapsed = _time.monotonic() - t0
+        print(f"[search] Embedding cache loaded from disk: {matrix.shape[0]} embeddings in {elapsed:.1f}s")
+        return True
+    except Exception as e:
+        print(f"[search] Failed to load cache from disk: {e}")
+        return False
+
+
 def _build_embedding_cache(conn: sqlite3.Connection, agent=None, channel=None,
                             days=None, date_from=None, date_to=None):
     """Load embeddings into a numpy matrix for vectorized search.
@@ -322,6 +395,10 @@ def _build_embedding_cache(conn: sqlite3.Connection, agent=None, channel=None,
         "last_access": _time.monotonic(),
     }
     del old_matrix
+
+    # Save to disk for fast reload on next startup (only for unfiltered full cache)
+    if agent is None and channel is None and days is None and date_from is None and date_to is None:
+        _save_cache_to_disk()
     gc.collect()
 
 
@@ -659,8 +736,17 @@ def preload_embedding_cache():
         global _preload_in_progress
         _preload_in_progress = True
         try:
+            # Try loading from disk cache first (fast: ~2s vs ~80s from SQLite)
             with get_db() as conn:
-                with _embedding_lock:
+                row_count = conn.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0]
+
+            with _embedding_lock:
+                if _load_cache_from_disk(row_count):
+                    return  # Disk cache was valid and loaded
+
+                # Disk cache stale or missing — rebuild from SQLite
+                print("[search] Building embedding cache from SQLite...")
+                with get_db() as conn:
                     _build_embedding_cache(conn)
                     rows = _embedding_cache.get("matrix")
             if rows is not None:
