@@ -25,12 +25,40 @@ Environment variables:
     MCP_SSE_PORT        Port to bind to (default: 8766)
     MCP_SSE_ALLOWED_HOSTS  Extra allowed hosts, comma-separated (e.g. "10.0.0.5:*")
 """
+import json
 import os
+import time
+
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 from claw_recall.config import MCP_SSE_HOST, MCP_SSE_PORT
 
 # Import the mcp instance with all tools already registered
 from claw_recall.api.mcp_stdio import mcp
+
+# Track startup time for health check grace period
+_startup_time = time.time()
+
+
+@mcp.custom_route("/health", methods=["GET"])
+async def health_check(request: Request) -> JSONResponse:
+    """Health check endpoint for monitoring scripts.
+
+    Returns server status including uptime and readiness state.
+    During the first 60 seconds after startup, reports status as 'warming_up'
+    to prevent health checks from triggering restarts while the embedding
+    cache is being built.
+    """
+    uptime = time.time() - _startup_time
+    warming_up = uptime < 60
+
+    return JSONResponse({
+        "status": "warming_up" if warming_up else "ok",
+        "uptime_seconds": int(uptime),
+        "transport": "streamable-http",
+    })
+
 
 if __name__ == "__main__":
     host = os.environ.get("MCP_SSE_HOST", MCP_SSE_HOST)
@@ -61,4 +89,5 @@ if __name__ == "__main__":
     preload_embedding_cache()
 
     print(f"Claw Recall MCP (Streamable HTTP) running at http://{host}:{port}/mcp")
+    print(f"Health check available at http://{host}:{port}/health")
     mcp.run(transport="streamable-http")

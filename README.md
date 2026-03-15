@@ -182,22 +182,27 @@ After saving the file, **restart Claude Code** for the tools to appear. You can 
 
 **Other MCP clients** — any client that supports the MCP stdio transport uses the same JSON structure. Check your client's documentation for where to put MCP server configs.
 
-### Connect a Remote Agent (SSE)
+### Connect a Remote Agent (Streamable HTTP)
 
 Use this when your agent runs on a **different machine** from Claw Recall (e.g., Claw Recall is on a VPS, your agent is on your laptop).
 
-**Step 1:** Start the SSE server on the Claw Recall machine:
+**Step 1:** Start the MCP server on the Claw Recall machine:
 ```bash
 python3 -m claw_recall.api.mcp_sse
 ```
 
 **Step 2:** Connect your agent to it:
 
-**Claude Code:**
-```bash
-claude mcp add --transport sse -s user claw-recall "http://your-server:8766/sse"
-# Replace 'your-server' with the hostname or IP of the machine running Claw Recall
-# Then restart Claude Code
+**Claude Code** — add to `~/.claude.json`:
+```json
+{
+  "mcpServers": {
+    "claw-recall": {
+      "type": "http",
+      "url": "http://your-server:8766/mcp"
+    }
+  }
+}
 ```
 
 **OpenClaw / mcporter / other MCP clients:**
@@ -205,7 +210,7 @@ claude mcp add --transport sse -s user claw-recall "http://your-server:8766/sse"
 {
   "mcpServers": {
     "claw-recall": {
-      "url": "http://your-server:8766/sse"
+      "url": "http://your-server:8766/mcp"
     }
   }
 }
@@ -262,6 +267,54 @@ crontab -e
 # Add this line:
 @reboot cd /home/YOUR_USERNAME/claw-recall && python3 -m claw_recall.api.web --host 127.0.0.1 --port 8765 >> /tmp/claw-recall.log 2>&1
 ```
+
+### Health Monitoring
+
+Claw Recall includes a health check script at `scripts/health-check.sh` that monitors all three services (MCP server, web API, file watcher) and the indexing pipeline. It's designed to run via cron.
+
+**What it checks:**
+1. MCP server is running and responding (uses `/health` endpoint)
+2. Web API is running and search returns results
+3. File watcher service is running
+4. Indexing pipeline is processing new session files
+5. Embedding backfill gap isn't growing
+
+**Setup:**
+```bash
+# Make executable
+chmod +x scripts/health-check.sh
+
+# Add to crontab (runs every 15 min)
+crontab -e
+```
+
+Add this line (adjust paths and URLs for your setup):
+```bash
+*/15 * * * * CLAW_RECALL_MCP_URL=http://127.0.0.1:8766/health \
+  CLAW_RECALL_WEB_URL=http://127.0.0.1:8765/status \
+  CLAW_RECALL_DB=/path/to/convo_memory.db \
+  /bin/bash /path/to/claw-recall/scripts/health-check.sh 2>/dev/null
+```
+
+**Environment variables:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CLAW_RECALL_MCP_URL` | `http://127.0.0.1:8766/health` | MCP server health endpoint |
+| `CLAW_RECALL_WEB_URL` | `http://127.0.0.1:8765/status` | Web API status endpoint |
+| `CLAW_RECALL_DB` | `~/convo_memory.db` | SQLite database path |
+| `CLAW_RECALL_ALERT_SCRIPT` | — | Path to alert script (receives: title, message, priority) |
+| `CLAW_RECALL_LOG` | `/tmp/claw-recall-health.log` | Health check log file |
+| `CLAW_RECALL_SESSION_DIRS` | `~/.openclaw/agents-archive/:...` | Colon-separated session directories |
+| `CLAW_RECALL_EMB_GAP_THRESHOLD` | `400000` | Embedding gap alert threshold |
+
+**Startup grace period:** The MCP server reports `"warming_up"` status for the first 60 seconds after startup while the embedding cache loads. The health check recognizes this and won't trigger false alerts during warmup.
+
+**Alert deduplication:** Same failure pattern only alerts once, then re-alerts every 2 hours if the issue persists. Alerts clear automatically when all checks pass.
+
+**Auto-restart behavior:** If the web API search returns 0 results (stale process), the health check auto-restarts `claw-recall-web`. The MCP server is **not** auto-restarted because that would disconnect all active agent sessions.
+
+Logs are at `/tmp/claw-recall-health.log` (auto-truncated at 2000 lines).
 
 ---
 
@@ -368,7 +421,8 @@ Force a mode with `--keyword` or `--semantic`. Works without an OpenAI key — k
 | MCP tools not appearing | Restart your agent after editing the config. Check the config file path (Claude Code uses `~/.claude.json`). |
 | Search returns nothing | Make sure you indexed first (Step 2). Check with `curl http://127.0.0.1:8765/status` |
 | Semantic search not working | Set `OPENAI_API_KEY` in `.env` and re-index with `--embeddings` |
-| SSE server stops when terminal closes | Use systemd, screen, or `@reboot` cron — see [Keep It Running](#keep-it-running-after-reboot) |
+| MCP server stops when terminal closes | Use systemd, screen, or `@reboot` cron — see [Keep It Running](#keep-it-running-after-reboot) |
+| MCP "Session not found" errors | Check health check logs (`/tmp/claw-recall-health.log`). Likely the server was restarted — see [Health Monitoring](#health-monitoring). |
 
 See the [Full Guide — Troubleshooting](docs/guide.md#troubleshooting) for detailed solutions.
 
