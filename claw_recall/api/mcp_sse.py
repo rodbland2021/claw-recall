@@ -82,6 +82,11 @@ if __name__ == "__main__":
     mcp.settings.transport_security.allowed_hosts = allowed
     mcp.settings.transport_security.allowed_origins = ["*"]
 
+    # Stateless mode: each request is self-contained (no session tracking).
+    # This prevents "Session not found" errors when the server restarts —
+    # clients don't need to re-initialize after a restart or deployment.
+    mcp.settings.stateless_http = True
+
     # Preload embedding cache in background to avoid cold-start latency.
     # Without this, the first semantic search after startup (or after 4h idle)
     # takes ~100s to rebuild the cache, during which searches return empty.

@@ -102,9 +102,12 @@ else
     log "OK: Web API HTTP 200"
 
     # 2b. Search actually returns results? (catches stale-process bugs)
-    SEARCH_URL="${WEB_URL%/status}/search?q=the&limit=1&force_keyword=true"
-    SEARCH_RESULT=$(curl -sf --connect-timeout 5 --max-time 15 "$SEARCH_URL" 2>/dev/null || echo '{"conversations":[]}')
-    CONVO_COUNT=$(echo "$SEARCH_RESULT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d.get('conversations',[])))" 2>/dev/null || echo "0")
+    # Use a common non-stopword that should always have hits. "the" is an FTS5
+    # stop word and returns 0 results for keyword search.
+    SEARCH_URL="${WEB_URL%/status}/search?q=error&limit=1&force_keyword=true"
+    SEARCH_RESULT=$(curl -sf --connect-timeout 5 --max-time 15 "$SEARCH_URL" 2>/dev/null || echo '{"conversations":[],"files":[]}')
+    # Count both conversations and files — either having results means search works
+    CONVO_COUNT=$(echo "$SEARCH_RESULT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d.get('conversations',[]))+len(d.get('files',[])))" 2>/dev/null || echo "0")
     if [ "$CONVO_COUNT" -eq 0 ]; then
         FAILURES="${FAILURES}[CRITICAL] Search returns 0 results — service may need restart\n"
         log "FAIL: Search returned 0 results (stale process?)"
