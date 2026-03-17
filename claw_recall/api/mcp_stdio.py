@@ -50,6 +50,7 @@ def search_memory(
     convos_only: bool = False,
     days: int = 0,
     limit: int = 10,
+    context_chars: int = 150,
 ) -> str:
     """Search ALL memory sources: conversations, captured thoughts (Gmail, Drive, Slack), and markdown files.
 
@@ -68,6 +69,7 @@ def search_memory(
         convos_only: Only search conversations and thoughts (skip markdown files)
         days: Limit to last N days (0 = all time)
         limit: Max results per category
+        context_chars: Max characters to show per result snippet (default 150, max 5000)
     """
     from claw_recall.cli import unified_search, format_unified_results
 
@@ -78,6 +80,9 @@ def search_memory(
     elif force_keyword:
         semantic = False
 
+    # Clamp context_chars to sane range
+    context_chars = max(50, min(int(context_chars), 5000))
+
     results = unified_search(
         query=query,
         agent=agent or None,
@@ -87,7 +92,7 @@ def search_memory(
         days=float(days) if days > 0 else None,
         limit=limit,
     )
-    return format_unified_results(results)
+    return format_unified_results(results, context_chars=context_chars)
 
 
 @mcp.tool()

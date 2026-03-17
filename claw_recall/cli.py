@@ -20,6 +20,7 @@ Usage:
 import re
 import argparse
 import sys
+from datetime import datetime
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -301,9 +302,16 @@ def unified_search(
     return results
 
 
-def format_unified_results(results: dict, verbose: bool = False) -> str:
-    """Format unified search results for display."""
+def format_unified_results(results: dict, verbose: bool = False, context_chars: int = 150) -> str:
+    """Format unified search results for display.
+
+    Args:
+        results: Dict with 'conversations', 'thoughts', 'files', 'summary' keys.
+        verbose: Legacy flag (unused, kept for compat).
+        context_chars: Max characters per snippet (default 150, caller can raise to 5000).
+    """
     output = []
+    max_chars = max(50, context_chars)
 
     # Conversations
     if results["conversations"]:
@@ -311,12 +319,13 @@ def format_unified_results(results: dict, verbose: bool = False) -> str:
         output.append("CONVERSATIONS")
         output.append("="*60)
 
-        for i, r in enumerate(results["conversations"][:5], 1):
+        for i, r in enumerate(results["conversations"], 1):
             if "error" in r:
                 output.append(f"  Error: {r['error']}")
                 continue
             ts = r.get('timestamp', 'unknown')[:16] if r.get('timestamp') else 'unknown'
-            content = r['content'][:150] + "..." if len(r.get('content', '')) > 150 else r.get('content', '')
+            raw = r.get('content', '')
+            content = raw[:max_chars] + "..." if len(raw) > max_chars else raw
             output.append(f"\n#{i} | {r['agent']} | {r['channel']} | {ts}")
             output.append(f"   [{r['role']}] {content}")
 
@@ -326,12 +335,13 @@ def format_unified_results(results: dict, verbose: bool = False) -> str:
         output.append("THOUGHTS")
         output.append("="*60)
 
-        for i, r in enumerate(results["thoughts"][:5], 1):
+        for i, r in enumerate(results["thoughts"], 1):
             if "error" in r:
                 output.append(f"  Error: {r['error']}")
                 continue
             ts = r.get('created_at', 'unknown')[:16] if r.get('created_at') else 'unknown'
-            content = r['content'][:150] + "..." if len(r.get('content', '')) > 150 else r.get('content', '')
+            raw = r.get('content', '')
+            content = raw[:max_chars] + "..." if len(raw) > max_chars else raw
             src = r.get('source', '?')
             agent = r.get('agent', '?')
             output.append(f"\n#{i} | {agent} via {src} | {ts}")
@@ -343,12 +353,12 @@ def format_unified_results(results: dict, verbose: bool = False) -> str:
         output.append("FILES")
         output.append("="*60)
 
-        for i, r in enumerate(results["files"][:5], 1):
+        for i, r in enumerate(results["files"], 1):
             if "error" in r:
                 output.append(f"  Error: {r['error']}")
                 continue
             output.append(f"\n#{i} | {r['agent']} | {r['path']}:{r['line_num']}")
-            output.append(f"   -> {r['line'][:150]}")
+            output.append(f"   -> {r['line'][:max_chars]}")
 
     output.append(f"\n{results['summary']}")
 
