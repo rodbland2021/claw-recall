@@ -5,6 +5,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.3.0] — 2026-03-18
+
+### Added
+- **`context_chars` parameter** for `search_memory` MCP tool — control how many characters of context are returned per result (default 500, max 2000). Useful for getting more or less surrounding text around matches.
+- **Disk cache for embedding matrix** — 12x faster startup (80s → 6.5s). Atomic writes prevent corruption. Cache auto-invalidates when DB changes.
+- **Key Features section** in README — comprehensive feature inventory for new users
+
+### Fixed
+- **Health check no longer breaks MCP sessions** — health check previously used a search query that could disrupt active MCP stdio sessions. Now uses a lightweight endpoint.
+- **Stateless HTTP mode** for MCP server — eliminates session tracking errors, improves reliability for remote agents
+- **Search reliability improvements** — MCP preloads embedding cache on startup, health check validates search actually returns results
+
+### Changed
+- Removed Discord server management scripts (moved to separate repo)
+- PA review fixes: atomic disk writes for embedding cache, count accuracy in stats, health check scope tightened
+
+---
+
 ## [2.2.1] — 2026-03-10
 
 Enhanced secret redaction reporting with per-type counting, improved redact_historical.py output, updated Discord invite link.
