@@ -20,6 +20,20 @@
 
 Claw Recall indexes all your agent conversations into a searchable SQLite database with full-text and semantic search. It also captures Gmail, Google Drive, and Slack — giving every agent access to a shared memory that survives compaction, restarts, and context limits.
 
+### Key Features
+
+- **6 data sources** — conversations, Gmail, Google Drive, Slack, captured thoughts, markdown files
+- **8 MCP tools** — search, browse, capture, and monitor via [Model Context Protocol](https://modelcontextprotocol.io/)
+- **14 REST API endpoints** — full HTTP access for scripts, web UI, and integrations
+- **Hybrid search** — auto-detects keyword (FTS5) vs semantic (embeddings) per query
+- **Multi-account** — Gmail and Drive support personal + work accounts simultaneously
+- **Noise filtering** — 70+ patterns filter newsletters, alerts, MIME blocklists, system messages
+- **Secret redaction** — API keys, tokens, and credentials stripped before indexing (10+ regex patterns)
+- **Incremental indexing** — byte-offset tracking, only processes new content
+- **Remote indexing** — HTTP upload endpoint for multi-machine setups
+- **Embedding cache** — full matrix in RAM for ~50ms semantic search across hundreds of thousands of messages
+- **Self-hosted** — your data stays on your machine, under $1/month to run
+
 **[Quick Start](#quick-start)** | **[How It Works](#how-it-works)** | **[MCP Tools](#mcp-tools)** | **[CLI](#cli-reference)** | **[REST API](#rest-api)** | **[Full Guide](docs/guide.md)** | **[Community](#community)**
 
 [Changelog](CHANGELOG.md) | [Discord](https://discord.gg/D7YcxVpQAB) | [Contributing](CONTRIBUTING.md)
