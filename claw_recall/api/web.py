@@ -670,6 +670,39 @@ def session_endpoint():
         return jsonify({"error": "Internal error"}), 500
 
 
+from claw_recall.maintenance.dedup import run_dry_run, delete_messages as _delete_messages
+
+
+@app.route('/cleanup')
+def cleanup_page():
+    return render_template('cleanup.html')
+
+
+@app.route('/api/cleanup/dry-run', methods=['POST'])
+def cleanup_dry_run():
+    try:
+        result = run_dry_run(str(DB_PATH))
+        return jsonify(result)
+    except Exception as e:
+        logging.exception("Dry-run failed")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/cleanup/delete', methods=['POST'])
+def cleanup_delete():
+    try:
+        data = request.get_json(force=True)
+        message_ids = data.get('message_ids', [])
+        if not isinstance(message_ids, list):
+            return jsonify({"error": "message_ids must be a list"}), 400
+        message_ids = [int(x) for x in message_ids]
+        result = _delete_messages(str(DB_PATH), message_ids)
+        return jsonify(result)
+    except Exception as e:
+        logging.exception("Delete failed")
+        return jsonify({"error": str(e)}), 500
+
+
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()

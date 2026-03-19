@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Recall — DB Cleanup</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧹</text></svg>">
+    <style>
+        :root {
+            --bg-body:        #0f172a;
+            --bg-card:        #1e293b;
+            --bg-input:       #0f172a;
+            --border-card:    #283548;
+            --border-input:   #334155;
+            --border-focus:   #60a5fa;
+            --text-bright:    #f8fafc;
+            --text-heading:   #f1f5f9;
+            --text-primary:   #e2e8f0;
+            --text-secondary: #94a3b8;
+            --text-muted:     #64748b;
+            --text-dim:       #475569;
+            --accent-blue:      #60a5fa;
+            --accent-blue-dark: #3b82f6;
+            --accent-indigo-light: #6366f1;
+            --color-success:  #4ade80;
+            --color-warning:  #fbbf24;
+            --color-danger:   #f87171;
+            --color-info:     #38bdf8;
+            --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+            --space-xs: 4px; --space-sm: 8px; --space-md: 16px;
+            --space-lg: 24px; --space-xl: 32px;
+            --radius-sm: 4px; --radius-base: 8px; --radius-xl: 12px; --radius-pill: 26px;
+            --transition-fast: all 0.15s ease; --transition-normal: all 0.2s ease;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: var(--font-sans);
+            background: var(--bg-body);
+            color: var(--text-primary);
+            min-height: 100vh;
+            padding: var(--space-lg);
+        }
+
+        /* Nav */
+        .site-nav { margin-bottom: 20px; padding: 12px 20px 6px; }
+        .site-nav .nav-main {
+            display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
+            max-width: 1100px; margin: 0 auto;
+        }
+        .site-nav .nav-brand {
+            font-size: 18px; font-weight: 600; color: var(--text-bright); margin-right: 20px;
+        }
+        .site-nav .nav-link {
+            color: var(--text-secondary); text-decoration: none;
+            padding: 6px 14px; border-radius: var(--radius-base); font-size: 14px; font-weight: 500;
+            white-space: nowrap; transition: var(--transition-fast);
+        }
+        .site-nav .nav-link:visited { color: var(--text-secondary); }
+        .site-nav .nav-link:hover, .site-nav .nav-link.active {
+            background: var(--bg-card); color: var(--text-primary);
+        }
+
+        .container { max-width: 1100px; margin: 0 auto; }
+        h1 { text-align: center; margin-bottom: 8px; color: var(--accent-blue); font-size: 2em; }
+        .subtitle { text-align: center; color: var(--text-secondary); margin-bottom: var(--space-xl); font-size: 14px; }
+
+        /* Summary cards */
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: var(--space-md);
+            margin-bottom: var(--space-xl);
+        }
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-card);
+            border-radius: var(--radius-xl);
+            padding: var(--space-lg);
+            text-align: center;
+        }
+        .card-label { color: var(--text-muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
+        .card-value { color: var(--text-bright); font-size: 2em; font-weight: 700; font-family: var(--font-mono); }
+        .card-value.danger { color: var(--color-danger); }
+        .card-value.warning { color: var(--color-warning); }
+        .card-value.success { color: var(--color-success); }
+        .card-value.info { color: var(--color-info); }
+
+        /* Toolbar */
+        .toolbar {
+            display: flex; align-items: center; gap: var(--space-md);
+            margin-bottom: var(--space-xl);
+            flex-wrap: wrap;
+        }
+        .btn {
+            padding: 10px 22px; border-radius: var(--radius-base); border: none;
+            font-size: 14px; font-weight: 600; cursor: pointer;
+            transition: var(--transition-fast);
+        }
+        .btn-primary { background: var(--accent-blue-dark); color: #fff; }
+        .btn-primary:hover { background: var(--accent-blue); }
+        .btn-danger { background: #7f1d1d; color: var(--color-danger); border: 1px solid #991b1b; }
+        .btn-danger:hover { background: #991b1b; }
+        .btn-secondary { background: var(--bg-card); color: var(--text-secondary); border: 1px solid var(--border-card); }
+        .btn-secondary:hover { color: var(--text-primary); border-color: var(--border-input); }
+        .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+        /* Spinner */
+        .spinner {
+            display: none; align-items: center; gap: 10px;
+            color: var(--text-secondary); font-size: 14px;
+        }
+        .spinner.active { display: flex; }
+        .spin-ring {
+            width: 20px; height: 20px;
+            border: 2px solid var(--border-card);
+            border-top-color: var(--accent-blue);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Tabs */
+        .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border-card); margin-bottom: var(--space-lg); }
+        .tab-btn {
+            padding: 10px 20px; border: none; background: none;
+            color: var(--text-muted); font-size: 14px; font-weight: 500;
+            cursor: pointer; border-bottom: 2px solid transparent;
+            transition: var(--transition-fast); margin-bottom: -1px;
+        }
+        .tab-btn:hover { color: var(--text-primary); }
+        .tab-btn.active { color: var(--accent-blue); border-bottom-color: var(--accent-blue); }
+        .tab-pane { display: none; }
+        .tab-pane.active { display: block; }
+
+        /* Tables */
+        .table-wrap { overflow-x: auto; border-radius: var(--radius-xl); border: 1px solid var(--border-card); }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        thead th {
+            background: #162032; color: var(--text-secondary); font-weight: 600;
+            padding: 10px 12px; text-align: left; white-space: nowrap;
+        }
+        tbody tr { border-top: 1px solid var(--border-card); transition: var(--transition-fast); }
+        tbody tr:hover { background: rgba(96,165,250,0.04); }
+        tbody td { padding: 9px 12px; color: var(--text-primary); vertical-align: middle; }
+        .content-preview {
+            font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary);
+            max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .badge {
+            display: inline-block; padding: 2px 8px; border-radius: var(--radius-pill);
+            font-size: 11px; font-weight: 600; font-family: var(--font-mono);
+        }
+        .badge-role { background: #1e3a5f; color: var(--color-info); }
+        .badge-cat-empty { background: #3b1515; color: var(--color-danger); }
+        .badge-cat-orphaned { background: #2d2000; color: var(--color-warning); }
+        .badge-cat-single_char { background: #1a2e1a; color: var(--color-success); }
+        .num { font-family: var(--font-mono); color: var(--text-secondary); }
+        .num-warn { font-family: var(--font-mono); color: var(--color-warning); }
+
+        /* Checkbox */
+        input[type=checkbox] { accent-color: var(--accent-blue); width: 15px; height: 15px; cursor: pointer; }
+
+        /* Empty state */
+        .empty-state {
+            text-align: center; padding: 48px; color: var(--text-muted); font-size: 15px;
+        }
+        .empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+
+        /* Bottom bar */
+        .bottom-bar {
+            position: sticky; bottom: 0; background: var(--bg-body);
+            border-top: 1px solid var(--border-card);
+            padding: var(--space-md) 0;
+            display: flex; align-items: center; gap: var(--space-md);
+            margin-top: var(--space-xl);
+        }
+        .selection-count { color: var(--text-secondary); font-size: 14px; }
+
+        /* Modal */
+        .modal-backdrop {
+            display: none; position: fixed; inset: 0;
+            background: rgba(0,0,0,0.7); z-index: 1000;
+            align-items: center; justify-content: center;
+        }
+        .modal-backdrop.open { display: flex; }
+        .modal {
+            background: var(--bg-card); border: 1px solid var(--border-card);
+            border-radius: var(--radius-xl); padding: var(--space-xl);
+            max-width: 440px; width: 90%;
+        }
+        .modal h3 { color: var(--color-danger); margin-bottom: 12px; font-size: 18px; }
+        .modal p { color: var(--text-secondary); margin-bottom: var(--space-lg); line-height: 1.6; }
+        .modal-actions { display: flex; gap: var(--space-sm); justify-content: flex-end; }
+
+        /* Toast */
+        #toast {
+            position: fixed; bottom: 24px; right: 24px;
+            background: var(--bg-card); border: 1px solid var(--color-success);
+            color: var(--color-success);
+            padding: 14px 20px; border-radius: var(--radius-xl);
+            font-size: 14px; font-weight: 500;
+            transform: translateY(80px); opacity: 0;
+            transition: transform 0.3s ease, opacity 0.3s ease;
+            z-index: 2000;
+        }
+        #toast.show { transform: translateY(0); opacity: 1; }
+        #toast.error { border-color: var(--color-danger); color: var(--color-danger); }
+
+        @media (max-width: 700px) {
+            .cards { grid-template-columns: 1fr 1fr; }
+            .content-preview { max-width: 200px; }
+        }
+    </style>
+</head>
+<body>
+<nav class="site-nav">
+    <div class="nav-main">
+        <span class="nav-brand">🔍 Recall</span>
+        <a href="/" class="nav-link">🔎 Search</a>
+        <a href="/cleanup" class="nav-link active">🧹 Cleanup</a>
+    </div>
+</nav>
+
+<div class="container">
+    <h1>🧹 DB Cleanup</h1>
+    <p class="subtitle">Dry-run deduplication — scan for duplicates and junk before any deletion.</p>
+
+    <!-- Summary Cards -->
+    <div class="cards">
+        <div class="card">
+            <div class="card-label">Total Messages</div>
+            <div class="card-value info" id="cardTotal">—</div>
+        </div>
+        <div class="card">
+            <div class="card-label">Duplicates Found</div>
+            <div class="card-value danger" id="cardDupes">—</div>
+        </div>
+        <div class="card">
+            <div class="card-label">Junk Found</div>
+            <div class="card-value warning" id="cardJunk">—</div>
+        </div>
+        <div class="card">
+            <div class="card-label">Est. Savings</div>
+            <div class="card-value success" id="cardSavings">—</div>
+        </div>
+    </div>
+
+    <!-- Toolbar -->
+    <div class="toolbar">
+        <button class="btn btn-primary" id="btnDryRun" onclick="runDryRun()">▶ Run Dry Run</button>
+        <div class="spinner" id="spinner">
+            <div class="spin-ring"></div>
+            <span id="spinnerMsg">Scanning DB… this may take 10–30 seconds</span>
+        </div>
+    </div>
+
+    <!-- Results (hidden until dry-run) -->
+    <div id="results" style="display:none">
+        <!-- Tabs -->
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('duplicates', this)">
+                📋 Duplicates <span id="tabDupeBadge"></span>
+            </button>
+            <button class="tab-btn" onclick="switchTab('junk', this)">
+                🗑 Junk <span id="tabJunkBadge"></span>
+            </button>
+        </div>
+
+        <!-- Duplicates Tab -->
+        <div id="tab-duplicates" class="tab-pane active">
+            <div class="table-wrap">
+                <table id="dupeTable">
+                    <thead>
+                        <tr>
+                            <th><input type="checkbox" id="selectAllDupes" onchange="toggleAll('dupes', this.checked)"></th>
+                            <th>Content Preview</th>
+                            <th>Role</th>
+                            <th>Count</th>
+                            <th>Reclaimable</th>
+                        </tr>
+                    </thead>
+                    <tbody id="dupeBody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Junk Tab -->
+        <div id="tab-junk" class="tab-pane">
+            <div class="table-wrap">
+                <table id="junkTable">
+                    <thead>
+                        <tr>
+                            <th><input type="checkbox" id="selectAllJunk" onchange="toggleAll('junk', this.checked)"></th>
+                            <th>Content</th>
+                            <th>Role</th>
+                            <th>Category</th>
+                            <th>Session ID</th>
+                        </tr>
+                    </thead>
+                    <tbody id="junkBody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Bottom bar -->
+        <div class="bottom-bar">
+            <span class="selection-count" id="selectionCount">No items selected</span>
+            <button class="btn btn-danger" id="btnDelete" onclick="confirmDelete()" disabled>🗑 Delete Selected</button>
+        </div>
+    </div>
+</div>
+
+<!-- Confirmation Modal -->
+<div class="modal-backdrop" id="modalBackdrop">
+    <div class="modal">
+        <h3>⚠️ Confirm Deletion</h3>
+        <p id="modalText">Are you sure? This is permanent and cannot be undone.</p>
+        <div class="modal-actions">
+            <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+            <button class="btn btn-danger" onclick="executeDelete()">Yes, Delete</button>
+        </div>
+    </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+let dryRunData = null;
+// Maps: groupIndex -> delete_ids[] for dupes; item index -> id for junk
+let dupeGroups = [];
+let junkItems = [];
+let selectedDupes = new Set();  // group indexes
+let selectedJunk = new Set();   // item indexes
+
+function fmtBytes(b) {
+    if (b >= 1024*1024) return (b / (1024*1024)).toFixed(1) + ' MB';
+    if (b >= 1024) return (b / 1024).toFixed(1) + ' KB';
+    return b + ' B';
+}
+function fmtNum(n) {
+    return n == null ? '—' : n.toLocaleString();
+}
+
+async function runDryRun() {
+    const btn = document.getElementById('btnDryRun');
+    const spinner = document.getElementById('spinner');
+    btn.disabled = true;
+    spinner.classList.add('active');
+    document.getElementById('results').style.display = 'none';
+
+    try {
+        const res = await fetch('/api/cleanup/dry-run', { method: 'POST' });
+        if (!res.ok) throw new Error(await res.text());
+        dryRunData = await res.json();
+        renderResults(dryRunData);
+    } catch (err) {
+        showToast('Dry-run failed: ' + err.message, true);
+    } finally {
+        btn.disabled = false;
+        spinner.classList.remove('active');
+    }
+}
+
+function renderResults(data) {
+    const s = data.summary;
+    document.getElementById('cardTotal').textContent = fmtNum(s.total_messages);
+    document.getElementById('cardDupes').textContent = fmtNum(s.duplicates_found);
+    document.getElementById('cardJunk').textContent = fmtNum(s.junk_found);
+    document.getElementById('cardSavings').textContent =
+        s.estimated_savings_mb ? s.estimated_savings_mb.toFixed(1) + ' MB' : '0 MB';
+
+    // Render duplicates
+    dupeGroups = (data.duplicates && data.duplicates.groups) || [];
+    selectedDupes.clear();
+    const dupeBody = document.getElementById('dupeBody');
+    if (dupeGroups.length === 0) {
+        dupeBody.innerHTML = `<tr><td colspan="5"><div class="empty-state"><div class="icon">✅</div>No duplicate groups found</div></td></tr>`;
+    } else {
+        dupeBody.innerHTML = dupeGroups.map((g, i) => `
+            <tr>
+                <td><input type="checkbox" class="dupe-cb" data-idx="${i}" onchange="onCheckDupe(${i}, this.checked)"></td>
+                <td><div class="content-preview" title="${escHtml(g.content_preview)}">${escHtml(g.content_preview)}</div></td>
+                <td><span class="badge badge-role">${escHtml(g.role)}</span></td>
+                <td><span class="num-warn">${fmtNum(g.count)}</span></td>
+                <td class="num">${fmtBytes(g.total_bytes * (g.count - 1) / g.count)}</td>
+            </tr>
+        `).join('');
+    }
+    document.getElementById('tabDupeBadge').textContent = dupeGroups.length ? `(${dupeGroups.length})` : '';
+
+    // Render junk
+    junkItems = (data.junk && data.junk.items) || [];
+    selectedJunk.clear();
+    const junkBody = document.getElementById('junkBody');
+    if (junkItems.length === 0) {
+        junkBody.innerHTML = `<tr><td colspan="5"><div class="empty-state"><div class="icon">✅</div>No junk messages found</div></td></tr>`;
+    } else {
+        junkBody.innerHTML = junkItems.map((item, i) => `
+            <tr>
+                <td><input type="checkbox" class="junk-cb" data-idx="${i}" ${item.category === 'single_char' ? '' : ''} onchange="onCheckJunk(${i}, this.checked)"></td>
+                <td><div class="content-preview" title="${escHtml(item.content)}">${escHtml(item.content) || '<em style="color:var(--text-dim)">empty</em>'}</div></td>
+                <td><span class="badge badge-role">${escHtml(item.role || '—')}</span></td>
+                <td><span class="badge badge-cat-${item.category}">${item.category}</span></td>
+                <td class="num">${escHtml(item.session_id || '—')}</td>
+            </tr>
+        `).join('');
+    }
+    document.getElementById('tabJunkBadge').textContent = junkItems.length ? `(${junkItems.length})` : '';
+
+    document.getElementById('results').style.display = 'block';
+    updateSelectionCount();
+}
+
+function switchTab(name, btn) {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-' + name).classList.add('active');
+}
+
+function toggleAll(type, checked) {
+    if (type === 'dupes') {
+        document.querySelectorAll('.dupe-cb').forEach((cb, i) => {
+            cb.checked = checked;
+            if (checked) selectedDupes.add(i); else selectedDupes.delete(i);
+        });
+    } else {
+        document.querySelectorAll('.junk-cb').forEach((cb, i) => {
+            cb.checked = checked;
+            if (checked) selectedJunk.add(i); else selectedJunk.delete(i);
+        });
+    }
+    updateSelectionCount();
+}
+
+function onCheckDupe(idx, checked) {
+    if (checked) selectedDupes.add(idx); else selectedDupes.delete(idx);
+    updateSelectionCount();
+}
+function onCheckJunk(idx, checked) {
+    if (checked) selectedJunk.add(idx); else selectedJunk.delete(idx);
+    updateSelectionCount();
+}
+
+function getSelectedIds() {
+    const ids = [];
+    selectedDupes.forEach(i => {
+        if (dupeGroups[i]) ids.push(...dupeGroups[i].delete_ids);
+    });
+    selectedJunk.forEach(i => {
+        if (junkItems[i]) ids.push(junkItems[i].id);
+    });
+    return ids;
+}
+
+function updateSelectionCount() {
+    const ids = getSelectedIds();
+    const total = ids.length;
+    const countEl = document.getElementById('selectionCount');
+    const deleteBtn = document.getElementById('btnDelete');
+    if (total === 0) {
+        countEl.textContent = 'No items selected';
+        deleteBtn.disabled = true;
+    } else {
+        countEl.textContent = `${total.toLocaleString()} messages selected (${selectedDupes.size} dup groups + ${selectedJunk.size} junk)`;
+        deleteBtn.disabled = false;
+    }
+}
+
+function confirmDelete() {
+    const ids = getSelectedIds();
+    if (ids.length === 0) return;
+    document.getElementById('modalText').textContent =
+        `Delete ${ids.length.toLocaleString()} messages? This action is permanent and cannot be undone.`;
+    document.getElementById('modalBackdrop').classList.add('open');
+}
+function closeModal() {
+    document.getElementById('modalBackdrop').classList.remove('open');
+}
+
+async function executeDelete() {
+    closeModal();
+    const ids = getSelectedIds();
+    const deleteBtn = document.getElementById('btnDelete');
+    deleteBtn.disabled = true;
+
+    try {
+        const res = await fetch('/api/cleanup/delete', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ message_ids: ids }),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const result = await res.json();
+        const freedMB = (result.freed_bytes / (1024*1024)).toFixed(1);
+        showToast(`✅ Deleted ${result.deleted.toLocaleString()} messages, freed ~${freedMB} MB`);
+        // Re-run dry run to refresh data
+        await runDryRun();
+    } catch (err) {
+        showToast('Delete failed: ' + err.message, true);
+        deleteBtn.disabled = false;
+    }
+}
+
+function showToast(msg, isError = false) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = isError ? 'error' : '';
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 4500);
+}
+
+function escHtml(s) {
+    if (!s) return '';
+    return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+</script>
+</body>
+</html>
