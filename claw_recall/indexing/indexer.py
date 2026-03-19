@@ -493,8 +493,14 @@ def index_session_file(
                 conn.commit()
                 return {'status': 'skipped', 'reason': 'no new messages'}
 
-            # INSERT only new messages
+            # INSERT only new messages (skip if already exists — guards against double-indexing)
             for msg in new_messages:
+                existing = conn.execute(
+                    "SELECT 1 FROM messages WHERE session_id = ? AND message_index = ? LIMIT 1",
+                    (session_id, msg['message_index'])
+                ).fetchone()
+                if existing:
+                    continue
                 conn.execute("""
                     INSERT INTO messages (session_id, role, content, timestamp, message_index)
                     VALUES (?, ?, ?, ?, ?)

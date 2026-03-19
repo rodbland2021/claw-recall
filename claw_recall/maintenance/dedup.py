@@ -27,8 +27,8 @@ def _connect(db_path: str) -> sqlite3.Connection:
 def _ensure_indexes(conn: sqlite3.Connection):
     """Create indexes needed for dedup queries if they don't exist."""
     conn.execute("""
-        CREATE INDEX IF NOT EXISTS idx_messages_content_role
-        ON messages(content, role)
+        CREATE INDEX IF NOT EXISTS idx_messages_session_role_index
+        ON messages(session_id, role, message_index)
     """)
     conn.execute("""
         CREATE INDEX IF NOT EXISTS idx_messages_session_id
@@ -52,101 +52,112 @@ def _is_single_emoji(text: str) -> bool:
     return len(text) > 0
 
 
-def find_exact_duplicates(db_path: str, limit: int = 1000) -> dict:
+def find_exact_duplicates(db_path: str, limit: int = 200) -> dict:
     """
-    Find groups of messages with identical (content, role), keeping the oldest (lowest id).
+    Find messages duplicated within the SAME session (same content + session_id +
+    role + message_index appearing more than once). Keeps the oldest (lowest id).
+
+    Root cause: sessions re-indexed without cleaning old rows, or watcher + cron
+    both indexing the same file. Typically produces exactly 2 copies per message.
 
     Returns:
         {
-            groups: [{content_preview, role, count, keep_id, delete_ids, total_bytes}],
-            summary: {total_groups, total_removable, estimated_savings_mb}
+            groups: [{content_preview, role, session_id, message_index, count, keep_id, delete_ids, bytes_saved}],
+            summary: {total_groups, total_removable, estimated_savings_mb, affected_sessions}
         }
     """
     conn = _connect(db_path)
     try:
         _ensure_indexes(conn)
 
-        # Step 1: find (content, role) pairs with duplicates, ordered by count desc
-        # Grab the keep_id (min id) and aggregate delete candidate IDs in the query
-        # Using a subquery to limit to top N groups efficiently
-        cur = conn.execute("""
-            SELECT
-                role,
-                SUBSTR(content, 1, 200) AS content_preview,
-                COUNT(*) AS cnt,
-                MIN(id) AS keep_id,
-                SUM(LENGTH(COALESCE(content, ''))) AS total_bytes
-            FROM messages
-            WHERE content IS NOT NULL AND content != ''
-            GROUP BY content, role
-            HAVING COUNT(*) > 1
-            ORDER BY COUNT(*) DESC
-            LIMIT ?
-        """, (limit,))
-
-        rows = cur.fetchall()
-
-        total_groups = 0
-        total_removable = 0
-
-        # Step 2: for each group, get the delete IDs (all ids except keep_id)
-        # We do this with a targeted query per group using keep_id
-        # To avoid N+1 being too slow, we batch via a single pass using ROW_NUMBER
-        # But given limit=1000, N+1 with indexed queries is acceptable here.
-
-        groups = []
+        # Get overall summary first (fast with index)
         summary_cur = conn.execute("""
             SELECT COUNT(*) as total_groups,
-                   SUM(cnt - 1) as total_removable
+                   SUM(cnt - 1) as total_removable,
+                   COUNT(DISTINCT session_id) as affected_sessions
             FROM (
-                SELECT COUNT(*) as cnt
+                SELECT session_id, COUNT(*) as cnt
                 FROM messages
-                WHERE content IS NOT NULL AND content != ''
-                GROUP BY content, role
-                HAVING COUNT(*) > 1
+                GROUP BY session_id, role, message_index, content
+                HAVING cnt > 1
             )
         """)
         summary_row = summary_cur.fetchone()
         total_groups = summary_row['total_groups'] or 0
         total_removable = summary_row['total_removable'] or 0
+        affected_sessions = summary_row['affected_sessions'] or 0
 
-        for row in rows:
-            keep_id = row['keep_id']
-            role = row['role']
-            content_preview = row['content_preview']
-
-            # Get IDs to delete (all except keep_id) — use index on (content, role)
-            # We reconstruct the exact content from a single row read
-            exact_cur = conn.execute(
-                "SELECT content FROM messages WHERE id = ?", (keep_id,)
+        # Get top duplicate groups by count, aggregated per SESSION
+        # (show per-session summary, not per-message-index to avoid overwhelming the UI)
+        cur = conn.execute("""
+            SELECT
+                session_id,
+                COUNT(*) as dup_messages,
+                SUM(extra) as extra_rows,
+                SUM(bytes_wasted) as bytes_wasted
+            FROM (
+                SELECT
+                    session_id,
+                    COUNT(*) - 1 as extra,
+                    LENGTH(content) * (COUNT(*) - 1) as bytes_wasted
+                FROM messages
+                GROUP BY session_id, role, message_index, content
+                HAVING COUNT(*) > 1
             )
-            exact_row = exact_cur.fetchone()
-            if not exact_row:
-                continue
-            exact_content = exact_row['content']
+            GROUP BY session_id
+            ORDER BY extra_rows DESC
+            LIMIT ?
+        """, (limit,))
 
+        groups = []
+        total_bytes_saved = 0
+
+        for row in cur.fetchall():
+            sid = row['session_id']
+
+            # Get session metadata for context
+            sess = conn.execute(
+                "SELECT agent_id, channel, started_at, message_count FROM sessions WHERE id = ?",
+                (sid,)
+            ).fetchone()
+
+            # Get the actual delete IDs for this session (keep lowest id per group)
             del_cur = conn.execute("""
                 SELECT id FROM messages
-                WHERE content = ? AND role = ? AND id != ?
-                LIMIT 5000
-            """, (exact_content, role, keep_id))
+                WHERE session_id = ?
+                  AND id NOT IN (
+                      SELECT MIN(id) FROM messages
+                      WHERE session_id = ?
+                      GROUP BY role, message_index, content
+                  )
+            """, (sid, sid))
             delete_ids = [r['id'] for r in del_cur.fetchall()]
 
-            bytes_per_msg = len((exact_content or '').encode('utf-8'))
-            total_bytes = bytes_per_msg * (row['cnt'])
+            # Get a sample message for preview
+            sample = conn.execute("""
+                SELECT SUBSTR(content, 1, 100) as preview, role
+                FROM messages WHERE session_id = ? AND content IS NOT NULL
+                ORDER BY message_index LIMIT 1
+            """, (sid,)).fetchone()
+
+            bytes_saved = row['bytes_wasted'] or 0
+            total_bytes_saved += bytes_saved
 
             groups.append({
-                'content_preview': (content_preview or '')[:100],
-                'role': role,
-                'count': row['cnt'],
-                'keep_id': keep_id,
+                'session_id': sid,
+                'agent': sess['agent_id'] if sess else 'unknown',
+                'channel': sess['channel'] if sess else 'unknown',
+                'started_at': sess['started_at'] if sess else None,
+                'expected_messages': sess['message_count'] if sess else 0,
+                'actual_messages': (sess['message_count'] or 0) + row['extra_rows'] if sess else row['extra_rows'],
+                'duplicate_rows': row['extra_rows'],
+                'sample_preview': sample['preview'] if sample else '',
+                'sample_role': sample['role'] if sample else '',
                 'delete_ids': delete_ids,
-                'total_bytes': total_bytes,
+                'bytes_saved': bytes_saved,
             })
 
-        estimated_savings_mb = round(
-            sum(g['total_bytes'] * (g['count'] - 1) / g['count'] for g in groups) / (1024 * 1024), 2
-        )
+        estimated_savings_mb = round(total_bytes_saved / (1024 * 1024), 2)
 
         return {
             'groups': groups,
@@ -154,6 +165,7 @@ def find_exact_duplicates(db_path: str, limit: int = 1000) -> dict:
                 'total_groups': total_groups,
                 'total_removable': total_removable,
                 'estimated_savings_mb': estimated_savings_mb,
+                'affected_sessions': affected_sessions,
             }
         }
     finally:
@@ -325,6 +337,7 @@ def run_dry_run(db_path: str, categories: list | None = None) -> dict:
 def delete_messages(db_path: str, message_ids: list) -> dict:
     """
     Delete specified messages by ID, plus orphaned embeddings.
+    Batches deletes in chunks of 500 to avoid SQLite variable limits.
 
     Args:
         db_path: Path to SQLite DB
@@ -337,34 +350,36 @@ def delete_messages(db_path: str, message_ids: list) -> dict:
         return {'deleted': 0, 'freed_bytes': 0}
 
     conn = _connect(db_path)
+    BATCH = 500
     try:
-        # Estimate bytes before deletion
-        placeholders = ','.join('?' * len(message_ids))
-        cur = conn.execute(
-            f"SELECT SUM(LENGTH(COALESCE(content, ''))) as total_bytes FROM messages WHERE id IN ({placeholders})",
-            message_ids
-        )
-        row = cur.fetchone()
-        freed_bytes = row['total_bytes'] or 0
+        freed_bytes = 0
+        deleted = 0
 
-        # Delete orphaned embeddings first (FK integrity)
-        conn.execute(
-            f"DELETE FROM embeddings WHERE message_id IN ({placeholders})",
-            message_ids
-        )
+        for i in range(0, len(message_ids), BATCH):
+            batch = message_ids[i:i + BATCH]
+            placeholders = ','.join('?' * len(batch))
 
-        # Delete messages
-        cur = conn.execute(
-            f"DELETE FROM messages WHERE id IN ({placeholders})",
-            message_ids
-        )
-        deleted = cur.rowcount
+            # Estimate bytes
+            cur = conn.execute(
+                f"SELECT SUM(LENGTH(COALESCE(content, ''))) as total_bytes "
+                f"FROM messages WHERE id IN ({placeholders})",
+                batch
+            )
+            row = cur.fetchone()
+            freed_bytes += row['total_bytes'] or 0
 
-        # Clean up any embeddings whose message_id no longer exists (belt+suspenders)
-        conn.execute("""
-            DELETE FROM embeddings
-            WHERE message_id NOT IN (SELECT id FROM messages)
-        """)
+            # Delete embeddings first
+            conn.execute(
+                f"DELETE FROM embeddings WHERE message_id IN ({placeholders})",
+                batch
+            )
+
+            # Delete messages
+            cur = conn.execute(
+                f"DELETE FROM messages WHERE id IN ({placeholders})",
+                batch
+            )
+            deleted += cur.rowcount
 
         conn.commit()
         return {'deleted': deleted, 'freed_bytes': freed_bytes}

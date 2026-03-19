@@ -233,8 +233,12 @@
             <div class="card-value info" id="cardTotal">—</div>
         </div>
         <div class="card">
-            <div class="card-label">Duplicates Found</div>
+            <div class="card-label">Duplicate Rows</div>
             <div class="card-value danger" id="cardDupes">—</div>
+        </div>
+        <div class="card">
+            <div class="card-label">Affected Sessions</div>
+            <div class="card-value warning" id="cardSessions">—</div>
         </div>
         <div class="card">
             <div class="card-label">Junk Found</div>
@@ -274,9 +278,10 @@
                     <thead>
                         <tr>
                             <th><input type="checkbox" id="selectAllDupes" onchange="toggleAll('dupes', this.checked)"></th>
-                            <th>Content Preview</th>
-                            <th>Role</th>
-                            <th>Count</th>
+                            <th>Session</th>
+                            <th>Agent</th>
+                            <th>Duplicate Rows</th>
+                            <th>Expected</th>
                             <th>Reclaimable</th>
                         </tr>
                     </thead>
@@ -366,6 +371,7 @@ function renderResults(data) {
     const s = data.summary;
     document.getElementById('cardTotal').textContent = fmtNum(s.total_messages);
     document.getElementById('cardDupes').textContent = fmtNum(s.duplicates_found);
+    document.getElementById('cardSessions').textContent = fmtNum(s.affected_sessions || 0);
     document.getElementById('cardJunk').textContent = fmtNum(s.junk_found);
     document.getElementById('cardSavings').textContent =
         s.estimated_savings_mb ? s.estimated_savings_mb.toFixed(1) + ' MB' : '0 MB';
@@ -375,15 +381,16 @@ function renderResults(data) {
     selectedDupes.clear();
     const dupeBody = document.getElementById('dupeBody');
     if (dupeGroups.length === 0) {
-        dupeBody.innerHTML = `<tr><td colspan="5"><div class="empty-state"><div class="icon">✅</div>No duplicate groups found</div></td></tr>`;
+        dupeBody.innerHTML = `<tr><td colspan="6"><div class="empty-state"><div class="icon">✅</div>No duplicate groups found</div></td></tr>`;
     } else {
         dupeBody.innerHTML = dupeGroups.map((g, i) => `
             <tr>
                 <td><input type="checkbox" class="dupe-cb" data-idx="${i}" onchange="onCheckDupe(${i}, this.checked)"></td>
-                <td><div class="content-preview" title="${escHtml(g.content_preview)}">${escHtml(g.content_preview)}</div></td>
-                <td><span class="badge badge-role">${escHtml(g.role)}</span></td>
-                <td><span class="num-warn">${fmtNum(g.count)}</span></td>
-                <td class="num">${fmtBytes(g.total_bytes * (g.count - 1) / g.count)}</td>
+                <td><div class="content-preview" title="${escHtml(g.session_id)}">${escHtml(g.session_id.substring(0, 30))}${g.started_at ? '<br><small style="color:var(--text-muted)">' + escHtml(g.started_at) + '</small>' : ''}</div></td>
+                <td><span class="badge badge-role">${escHtml(g.agent)}</span></td>
+                <td><span class="num-warn">${fmtNum(g.duplicate_rows)}</span></td>
+                <td class="num">${fmtNum(g.expected_messages)}</td>
+                <td class="num">${fmtBytes(g.bytes_saved)}</td>
             </tr>
         `).join('');
     }
