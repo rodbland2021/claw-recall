@@ -835,27 +835,46 @@ function closeModal() {
     document.getElementById('modalBackdrop').classList.remove('open');
 }
 
+// Chunked delete — sends batches of 5,000 IDs with progress updates
+const CHUNK_SIZE = 5000;
+async function chunkedDelete(ids, statusEl) {
+    let totalDeleted = 0;
+    let totalFreed = 0;
+    const total = ids.length;
+
+    for (let i = 0; i < ids.length; i += CHUNK_SIZE) {
+        const chunk = ids.slice(i, i + CHUNK_SIZE);
+        const pct = Math.round(((i + chunk.length) / total) * 100);
+        if (statusEl) statusEl.textContent = 'Deleting... ' + pct + '% (' + fmtNum(i + chunk.length) + '/' + fmtNum(total) + ')';
+
+        const res = await fetch('/api/cleanup/delete', {
+            method: 'POST',
+            credentials: 'include',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ message_ids: chunk }),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const result = await res.json();
+        totalDeleted += result.deleted;
+        totalFreed += result.freed_bytes;
+    }
+    return { deleted: totalDeleted, freed_bytes: totalFreed };
+}
+
 async function executeDelete() {
     closeModal();
     const ids = getSelectedIds();
     const deleteBtn = document.getElementById('btnDelete');
     deleteBtn.disabled = true;
-    deleteBtn.textContent = 'Deleting...';
 
     try {
-        const res = await fetch('/api/cleanup/delete', {
-            method: 'POST',
-            credentials: 'include',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ message_ids: ids }),
-        });
-        if (!res.ok) throw new Error(await res.text());
-        const result = await res.json();
+        const result = await chunkedDelete(ids, deleteBtn);
         const freedMB = (result.freed_bytes / (1024*1024)).toFixed(1);
         showToast('Deleted ' + result.deleted.toLocaleString() + ' messages, freed ~' + freedMB + ' MB');
         await runDryRun();
     } catch (err) {
         showToast('Delete failed: ' + err.message, true);
+    } finally {
         deleteBtn.textContent = 'Delete Selected';
         deleteBtn.disabled = false;
     }
@@ -866,22 +885,16 @@ async function executeDeleteAllDupes() {
     const ids = getAllDupeIds();
     const allDupesBtn = document.getElementById('btnDeleteAllDupes');
     allDupesBtn.disabled = true;
-    allDupesBtn.textContent = 'Deleting...';
 
     try {
-        const res = await fetch('/api/cleanup/delete', {
-            method: 'POST',
-            credentials: 'include',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ message_ids: ids }),
-        });
-        if (!res.ok) throw new Error(await res.text());
-        const result = await res.json();
+        const result = await chunkedDelete(ids, allDupesBtn);
         const freedMB = (result.freed_bytes / (1024*1024)).toFixed(1);
         showToast('Deleted ' + result.deleted.toLocaleString() + ' duplicate messages, freed ~' + freedMB + ' MB');
         await runDryRun();
     } catch (err) {
         showToast('Delete failed: ' + err.message, true);
+    } finally {
+        allDupesBtn.textContent = 'Delete All Duplicates';
         allDupesBtn.disabled = false;
     }
 }
