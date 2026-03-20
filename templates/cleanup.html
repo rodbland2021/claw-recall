@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Recall — DB Cleanup</title>
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧹</text></svg>">
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <style>
         :root {
             --bg-body:        #0f172a;
@@ -31,7 +31,9 @@
             --space-xs: 4px; --space-sm: 8px; --space-md: 16px;
             --space-lg: 24px; --space-xl: 32px;
             --radius-sm: 4px; --radius-base: 8px; --radius-xl: 12px; --radius-pill: 26px;
-            --transition-fast: all 0.15s ease; --transition-normal: all 0.2s ease;
+            --transition-fast: all 0.15s ease;
+            --transition-normal: all 0.2s ease;
+            --transition-slow: all 0.3s ease;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -68,7 +70,7 @@
         /* Summary cards */
         .cards {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
             gap: var(--space-md);
             margin-bottom: var(--space-xl);
         }
@@ -76,19 +78,23 @@
             background: var(--bg-card);
             border: 1px solid var(--border-card);
             border-radius: var(--radius-xl);
-            padding: var(--space-lg);
+            padding: var(--space-md) var(--space-sm);
             text-align: center;
         }
-        .card-label { color: var(--text-muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
-        .card-value { color: var(--text-bright); font-size: 2em; font-weight: 700; font-family: var(--font-mono); }
+        .card-label { color: var(--text-secondary); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+        .card-value { color: var(--text-bright); font-size: 1.6em; font-weight: 700; font-family: var(--font-mono); word-break: break-all; }
         .card-value.danger { color: var(--color-danger); }
         .card-value.warning { color: var(--color-warning); }
         .card-value.success { color: var(--color-success); }
         .card-value.info { color: var(--color-info); }
 
+        /* Skeleton pulse for loading state */
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+        .card.loading .card-value { animation: pulse 1.5s ease-in-out infinite; }
+
         /* Toolbar */
         .toolbar {
-            display: flex; align-items: center; gap: var(--space-md);
+            display: flex; align-items: center; gap: var(--space-sm);
             margin-bottom: var(--space-xl);
             flex-wrap: wrap;
         }
@@ -103,6 +109,7 @@
         .btn-danger:hover { background: #991b1b; }
         .btn-secondary { background: var(--bg-card); color: var(--text-secondary); border: 1px solid var(--border-card); }
         .btn-secondary:hover { color: var(--text-primary); border-color: var(--border-input); }
+        .btn-sm { padding: 6px 14px; font-size: 12px; }
         .btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
         /* Spinner */
@@ -121,23 +128,67 @@
         @keyframes spin { to { transform: rotate(360deg); } }
 
         /* Tabs */
-        .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border-card); margin-bottom: var(--space-lg); }
+        .tabs {
+            display: flex; gap: 4px; border-bottom: 1px solid var(--border-card);
+            margin-bottom: var(--space-lg); overflow-x: auto; flex-wrap: nowrap;
+            -webkit-overflow-scrolling: touch;
+        }
         .tab-btn {
-            padding: 10px 20px; border: none; background: none;
+            padding: 10px 16px; border: none; background: none;
             color: var(--text-muted); font-size: 14px; font-weight: 500;
             cursor: pointer; border-bottom: 2px solid transparent;
             transition: var(--transition-fast); margin-bottom: -1px;
+            white-space: nowrap; flex-shrink: 0;
         }
         .tab-btn:hover { color: var(--text-primary); }
         .tab-btn.active { color: var(--accent-blue); border-bottom-color: var(--accent-blue); }
         .tab-pane { display: none; }
         .tab-pane.active { display: block; }
 
+        /* Truncation indicator */
+        .truncation-note {
+            color: var(--text-muted); font-size: 12px;
+            margin-bottom: var(--space-sm); font-style: italic;
+        }
+
+        /* Table filter */
+        .table-filter {
+            margin-bottom: var(--space-sm);
+            display: flex; align-items: center; gap: var(--space-sm);
+        }
+        .filter-wrap {
+            position: relative; display: inline-block;
+        }
+        .filter-wrap input {
+            background: var(--bg-input); border: 1px solid var(--border-input);
+            border-radius: var(--radius-base); padding: 8px 30px 8px 12px;
+            color: var(--text-primary); font-size: 13px; width: 260px;
+            transition: var(--transition-fast);
+        }
+        .filter-wrap input:focus { border-color: var(--border-focus); outline: none; }
+        .filter-clear {
+            position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+            background: none; border: none; color: var(--text-muted); cursor: pointer;
+            font-size: 14px; line-height: 1; padding: 2px; display: none;
+        }
+        .filter-clear:hover { color: var(--text-primary); }
+        .filter-wrap input:not(:placeholder-shown) + .filter-clear { display: block; }
+        .table-filter .filter-count { color: var(--text-secondary); font-size: 12px; }
+
         /* Tables */
-        .table-wrap { overflow-x: auto; border-radius: var(--radius-xl); border: 1px solid var(--border-card); }
+        .table-wrap {
+            overflow-x: auto; border-radius: var(--radius-xl);
+            border: 1px solid var(--border-card); position: relative;
+        }
+        /* Right-edge fade hint when table overflows */
+        .table-wrap.has-overflow::after {
+            content: ''; position: absolute; top: 0; right: 0;
+            width: 30px; height: 100%; pointer-events: none;
+            background: linear-gradient(to right, transparent, var(--bg-body));
+        }
         table { width: 100%; border-collapse: collapse; font-size: 13px; }
         thead th {
-            background: #162032; color: var(--text-secondary); font-weight: 600;
+            background: var(--bg-input); color: var(--text-secondary); font-weight: 600;
             padding: 10px 12px; text-align: left; white-space: nowrap;
         }
         tbody tr { border-top: 1px solid var(--border-card); transition: var(--transition-fast); }
@@ -155,6 +206,7 @@
         .badge-cat-empty { background: #3b1515; color: var(--color-danger); }
         .badge-cat-orphaned { background: #2d2000; color: var(--color-warning); }
         .badge-cat-single_char { background: #1a2e1a; color: var(--color-success); }
+        .badge-cat-noise { background: #2d1a3d; color: #c084fc; }
         .num { font-family: var(--font-mono); color: var(--text-secondary); }
         .num-warn { font-family: var(--font-mono); color: var(--color-warning); }
 
@@ -173,9 +225,23 @@
             border-top: 1px solid var(--border-card);
             padding: var(--space-md) 0;
             display: flex; align-items: center; gap: var(--space-md);
-            margin-top: var(--space-xl);
+            margin-top: var(--space-xl); z-index: 10;
         }
         .selection-count { color: var(--text-secondary); font-size: 14px; }
+
+        /* History section — always visible once loaded */
+        .history-section { margin-top: var(--space-xl); }
+        .history-toggle {
+            background: none; border: none; color: var(--text-secondary);
+            cursor: pointer; font-size: 14px; font-weight: 500;
+            padding: var(--space-sm) 0; display: flex; align-items: center; gap: 8px;
+            transition: var(--transition-fast);
+        }
+        .history-toggle:hover { color: var(--text-primary); }
+        .history-toggle .chevron { transition: transform var(--transition-normal); display: inline-block; }
+        .history-toggle.open .chevron { transform: rotate(90deg); }
+        .history-content { display: none; margin-top: var(--space-md); }
+        .history-content.open { display: block; }
 
         /* Modal */
         .modal-backdrop {
@@ -187,7 +253,7 @@
         .modal {
             background: var(--bg-card); border: 1px solid var(--border-card);
             border-radius: var(--radius-xl); padding: var(--space-xl);
-            max-width: 440px; width: 90%;
+            max-width: 480px; width: 90%;
         }
         .modal h3 { color: var(--color-danger); margin-bottom: 12px; font-size: 18px; }
         .modal p { color: var(--text-secondary); margin-bottom: var(--space-lg); line-height: 1.6; }
@@ -201,61 +267,72 @@
             padding: 14px 20px; border-radius: var(--radius-xl);
             font-size: 14px; font-weight: 500;
             transform: translateY(80px); opacity: 0;
-            transition: transform 0.3s ease, opacity 0.3s ease;
+            transition: transform var(--transition-slow), opacity var(--transition-slow);
             z-index: 2000;
         }
         #toast.show { transform: translateY(0); opacity: 1; }
         #toast.error { border-color: var(--color-danger); color: var(--color-danger); }
 
         @media (max-width: 700px) {
-            .cards { grid-template-columns: 1fr 1fr; }
+            .cards { grid-template-columns: repeat(3, 1fr); gap: var(--space-sm); }
+            .card { padding: var(--space-sm) var(--space-xs); }
+            .card-label { font-size: 9px; }
+            .card-value { font-size: 1.2em; }
             .content-preview { max-width: 200px; }
+            .filter-wrap input { width: 180px; }
+            .toolbar { gap: var(--space-xs); }
+            .btn { padding: 8px 14px; font-size: 13px; }
         }
     </style>
 </head>
 <body>
 <nav class="site-nav">
     <div class="nav-main">
-        <span class="nav-brand">🔍 Recall</span>
-        <a href="/" class="nav-link">🔎 Search</a>
-        <a href="/cleanup" class="nav-link active">🧹 Cleanup</a>
+        <span class="nav-brand">Recall</span>
+        <a href="/" class="nav-link">Search</a>
+        <a href="/cleanup" class="nav-link active">Cleanup</a>
     </div>
 </nav>
 
 <div class="container">
-    <h1>🧹 DB Cleanup</h1>
-    <p class="subtitle">Dry-run deduplication — scan for duplicates and junk before any deletion.</p>
+    <h1>DB Cleanup</h1>
+    <p class="subtitle">Scan for duplicates, junk, noise, and orphans — review before deletion.</p>
 
     <!-- Summary Cards -->
-    <div class="cards">
-        <div class="card">
+    <div class="cards" id="cardsContainer">
+        <div class="card loading">
             <div class="card-label">Total Messages</div>
-            <div class="card-value info" id="cardTotal">—</div>
+            <div class="card-value info" id="cardTotal">&mdash;</div>
         </div>
-        <div class="card">
-            <div class="card-label">Duplicate Rows</div>
-            <div class="card-value danger" id="cardDupes">—</div>
+        <div class="card loading">
+            <div class="card-label">Duplicates</div>
+            <div class="card-value danger" id="cardDupes">&mdash;</div>
         </div>
-        <div class="card">
-            <div class="card-label">Affected Sessions</div>
-            <div class="card-value warning" id="cardSessions">—</div>
+        <div class="card loading">
+            <div class="card-label">Noise</div>
+            <div class="card-value warning" id="cardNoise">&mdash;</div>
         </div>
-        <div class="card">
-            <div class="card-label">Junk Found</div>
-            <div class="card-value warning" id="cardJunk">—</div>
+        <div class="card loading">
+            <div class="card-label">Junk</div>
+            <div class="card-value warning" id="cardJunk">&mdash;</div>
         </div>
-        <div class="card">
+        <div class="card loading">
+            <div class="card-label">Orphan Embeds</div>
+            <div class="card-value warning" id="cardOrphanEmbeds">&mdash;</div>
+        </div>
+        <div class="card loading">
             <div class="card-label">Est. Savings</div>
-            <div class="card-value success" id="cardSavings">—</div>
+            <div class="card-value success" id="cardSavings">&mdash;</div>
         </div>
     </div>
 
     <!-- Toolbar -->
     <div class="toolbar">
-        <button class="btn btn-primary" id="btnDryRun" onclick="runDryRun()">▶ Run Dry Run</button>
+        <button class="btn btn-primary" id="btnDryRun" onclick="runDryRun()">Run Dry Run</button>
+        <button class="btn btn-danger" id="btnDeleteAllDupes" onclick="confirmDeleteAllDupes()" style="display:none">Delete All Duplicates</button>
         <div class="spinner" id="spinner">
             <div class="spin-ring"></div>
-            <span id="spinnerMsg">Scanning DB… this may take 10–30 seconds</span>
+            <span>Scanning DB&hellip;</span>
         </div>
     </div>
 
@@ -264,15 +341,29 @@
         <!-- Tabs -->
         <div class="tabs">
             <button class="tab-btn active" onclick="switchTab('duplicates', this)">
-                📋 Duplicates <span id="tabDupeBadge"></span>
+                Duplicates <span id="tabDupeBadge"></span>
+            </button>
+            <button class="tab-btn" onclick="switchTab('noise', this)">
+                Noise <span id="tabNoiseBadge"></span>
             </button>
             <button class="tab-btn" onclick="switchTab('junk', this)">
-                🗑 Junk <span id="tabJunkBadge"></span>
+                Junk <span id="tabJunkBadge"></span>
+            </button>
+            <button class="tab-btn" onclick="switchTab('orphan_embeds', this)">
+                Orphan Embeds <span id="tabOrphanBadge"></span>
             </button>
         </div>
 
         <!-- Duplicates Tab -->
         <div id="tab-duplicates" class="tab-pane active">
+            <div class="table-filter">
+                <div class="filter-wrap">
+                    <input type="text" id="filterDupes" placeholder="Filter by session or agent..." oninput="filterTable('dupes')">
+                    <button class="filter-clear" onclick="clearFilter('dupes')">&times;</button>
+                </div>
+                <span class="filter-count" id="filterDupesCount"></span>
+            </div>
+            <div class="truncation-note" id="dupeTruncNote" style="display:none"></div>
             <div class="table-wrap">
                 <table id="dupeTable">
                     <thead>
@@ -280,7 +371,7 @@
                             <th><input type="checkbox" id="selectAllDupes" onchange="toggleAll('dupes', this.checked)"></th>
                             <th>Session</th>
                             <th>Agent</th>
-                            <th>Duplicate Rows</th>
+                            <th>Dup Rows</th>
                             <th>Expected</th>
                             <th>Reclaimable</th>
                         </tr>
@@ -290,8 +381,42 @@
             </div>
         </div>
 
+        <!-- Noise Tab -->
+        <div id="tab-noise" class="tab-pane">
+            <div class="table-filter">
+                <div class="filter-wrap">
+                    <input type="text" id="filterNoise" placeholder="Filter by pattern or content..." oninput="filterTable('noise')">
+                    <button class="filter-clear" onclick="clearFilter('noise')">&times;</button>
+                </div>
+                <span class="filter-count" id="filterNoiseCount"></span>
+            </div>
+            <div class="truncation-note" id="noiseTruncNote" style="display:none"></div>
+            <div class="table-wrap">
+                <table id="noiseTable">
+                    <thead>
+                        <tr>
+                            <th><input type="checkbox" id="selectAllNoise" onchange="toggleAll('noise', this.checked)"></th>
+                            <th>Content</th>
+                            <th>Pattern</th>
+                            <th>Role</th>
+                            <th>Session ID</th>
+                        </tr>
+                    </thead>
+                    <tbody id="noiseBody"></tbody>
+                </table>
+            </div>
+        </div>
+
         <!-- Junk Tab -->
         <div id="tab-junk" class="tab-pane">
+            <div class="table-filter">
+                <div class="filter-wrap">
+                    <input type="text" id="filterJunk" placeholder="Filter by content or category..." oninput="filterTable('junk')">
+                    <button class="filter-clear" onclick="clearFilter('junk')">&times;</button>
+                </div>
+                <span class="filter-count" id="filterJunkCount"></span>
+            </div>
+            <div class="truncation-note" id="junkTruncNote" style="display:none"></div>
             <div class="table-wrap">
                 <table id="junkTable">
                     <thead>
@@ -308,10 +433,61 @@
             </div>
         </div>
 
+        <!-- Orphaned Embeddings Tab -->
+        <div id="tab-orphan_embeds" class="tab-pane">
+            <div style="margin-bottom: var(--space-md)">
+                <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: var(--space-md)">
+                    Embeddings whose parent message no longer exists. Each wastes ~6 KB.
+                    These are always safe to delete.
+                </p>
+                <button class="btn btn-danger btn-sm" id="btnDeleteOrphanEmbeds" onclick="confirmDeleteOrphanEmbeds()" disabled>
+                    Delete All Orphaned Embeddings
+                </button>
+                <span class="num" id="orphanEmbedsInfo" style="margin-left: var(--space-md)"></span>
+            </div>
+            <div class="table-wrap" id="orphanTableWrap" style="display:none">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Embedding ID</th>
+                            <th>Orphaned Message ID</th>
+                        </tr>
+                    </thead>
+                    <tbody id="orphanBody"></tbody>
+                </table>
+            </div>
+        </div>
+
         <!-- Bottom bar -->
         <div class="bottom-bar">
             <span class="selection-count" id="selectionCount">No items selected</span>
-            <button class="btn btn-danger" id="btnDelete" onclick="confirmDelete()" disabled>🗑 Delete Selected</button>
+            <button class="btn btn-danger" id="btnDelete" onclick="confirmDelete()" disabled>Delete Selected</button>
+        </div>
+    </div>
+
+    <!-- History Section — loads independently before dry-run -->
+    <div class="history-section" id="historySection" style="display:none">
+        <button class="history-toggle" id="historyToggle" onclick="toggleHistory()">
+            <span class="chevron">&#9654;</span> Cleanup History
+        </button>
+        <div class="history-content" id="historyContent">
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>When</th>
+                            <th>Mode</th>
+                            <th>Dupes</th>
+                            <th>Junk</th>
+                            <th>Noise</th>
+                            <th>Orphans</th>
+                            <th>Deleted</th>
+                            <th>Freed</th>
+                        </tr>
+                    </thead>
+                    <tbody id="historyBody"></tbody>
+                </table>
+            </div>
         </div>
     </div>
 </div>
@@ -319,11 +495,11 @@
 <!-- Confirmation Modal -->
 <div class="modal-backdrop" id="modalBackdrop">
     <div class="modal">
-        <h3>⚠️ Confirm Deletion</h3>
+        <h3>Confirm Deletion</h3>
         <p id="modalText">Are you sure? This is permanent and cannot be undone.</p>
         <div class="modal-actions">
             <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-            <button class="btn btn-danger" onclick="executeDelete()">Yes, Delete</button>
+            <button class="btn btn-danger" id="modalConfirmBtn">Yes, Delete</button>
         </div>
     </div>
 </div>
@@ -332,11 +508,12 @@
 
 <script>
 let dryRunData = null;
-// Maps: groupIndex -> delete_ids[] for dupes; item index -> id for junk
 let dupeGroups = [];
 let junkItems = [];
-let selectedDupes = new Set();  // group indexes
-let selectedJunk = new Set();   // item indexes
+let noiseItems = [];
+let selectedDupes = new Set();
+let selectedJunk = new Set();
+let selectedNoise = new Set();
 
 function fmtBytes(b) {
     if (b >= 1024*1024) return (b / (1024*1024)).toFixed(1) + ' MB';
@@ -344,7 +521,14 @@ function fmtBytes(b) {
     return b + ' B';
 }
 function fmtNum(n) {
-    return n == null ? '—' : n.toLocaleString();
+    return n == null ? '\u2014' : n.toLocaleString();
+}
+
+function setCardsLoading(loading) {
+    document.querySelectorAll('#cardsContainer .card').forEach(c => {
+        if (loading) c.classList.add('loading');
+        else c.classList.remove('loading');
+    });
 }
 
 async function runDryRun() {
@@ -352,18 +536,22 @@ async function runDryRun() {
     const spinner = document.getElementById('spinner');
     btn.disabled = true;
     spinner.classList.add('active');
+    setCardsLoading(true);
     document.getElementById('results').style.display = 'none';
+    document.getElementById('btnDeleteAllDupes').style.display = 'none';
 
     try {
-        const res = await fetch('/api/cleanup/dry-run', { method: 'POST' });
+        const res = await fetch('/api/cleanup/dry-run', { method: 'POST', credentials: 'include' });
         if (!res.ok) throw new Error(await res.text());
         dryRunData = await res.json();
         renderResults(dryRunData);
+        loadHistory();
     } catch (err) {
         showToast('Dry-run failed: ' + err.message, true);
     } finally {
         btn.disabled = false;
         spinner.classList.remove('active');
+        setCardsLoading(false);
     }
 }
 
@@ -371,21 +559,29 @@ function renderResults(data) {
     const s = data.summary;
     document.getElementById('cardTotal').textContent = fmtNum(s.total_messages);
     document.getElementById('cardDupes').textContent = fmtNum(s.duplicates_found);
-    document.getElementById('cardSessions').textContent = fmtNum(s.affected_sessions || 0);
+    document.getElementById('cardNoise').textContent = fmtNum(s.noise_found);
     document.getElementById('cardJunk').textContent = fmtNum(s.junk_found);
+    document.getElementById('cardOrphanEmbeds').textContent = fmtNum(s.orphaned_embeddings_found);
     document.getElementById('cardSavings').textContent =
         s.estimated_savings_mb ? s.estimated_savings_mb.toFixed(1) + ' MB' : '0 MB';
+
+    // Show "Delete All Duplicates" quick-action if there are dupes
+    const allDupesBtn = document.getElementById('btnDeleteAllDupes');
+    if (s.duplicates_found > 0) {
+        allDupesBtn.textContent = 'Delete All Duplicates (' + fmtNum(s.duplicates_found) + ')';
+        allDupesBtn.style.display = '';
+    }
 
     // Render duplicates
     dupeGroups = (data.duplicates && data.duplicates.groups) || [];
     selectedDupes.clear();
     const dupeBody = document.getElementById('dupeBody');
     if (dupeGroups.length === 0) {
-        dupeBody.innerHTML = `<tr><td colspan="6"><div class="empty-state"><div class="icon">✅</div>No duplicate groups found</div></td></tr>`;
+        dupeBody.innerHTML = '<tr><td colspan="6"><div class="empty-state"><div class="icon">&#10003;</div>No duplicate groups found</div></td></tr>';
     } else {
         dupeBody.innerHTML = dupeGroups.map((g, i) => `
-            <tr>
-                <td><input type="checkbox" class="dupe-cb" data-idx="${i}" onchange="onCheckDupe(${i}, this.checked)"></td>
+            <tr data-filter="${escHtml(g.session_id + ' ' + g.agent).toLowerCase()}">
+                <td><input type="checkbox" class="dupe-cb" data-idx="${i}" onchange="onCheck('dupes', ${i}, this.checked)"></td>
                 <td><div class="content-preview" title="${escHtml(g.session_id)}">${escHtml(g.session_id.substring(0, 30))}${g.started_at ? '<br><small style="color:var(--text-muted)">' + escHtml(g.started_at) + '</small>' : ''}</div></td>
                 <td><span class="badge badge-role">${escHtml(g.agent)}</span></td>
                 <td><span class="num-warn">${fmtNum(g.duplicate_rows)}</span></td>
@@ -394,30 +590,99 @@ function renderResults(data) {
             </tr>
         `).join('');
     }
-    document.getElementById('tabDupeBadge').textContent = dupeGroups.length ? `(${dupeGroups.length})` : '';
+    // Show total removable count, not group limit
+    document.getElementById('tabDupeBadge').textContent = s.duplicates_found ? `(${fmtNum(s.duplicates_found)})` : '';
+    showTruncNote('dupe', dupeGroups.length, data.duplicates ? data.duplicates.summary.total_groups : 0, 'groups');
+
+    // Render noise
+    noiseItems = (data.noise && data.noise.items) || [];
+    selectedNoise.clear();
+    const noiseBody = document.getElementById('noiseBody');
+    const noiseTotal = s.noise_found || 0;
+    if (noiseItems.length === 0) {
+        noiseBody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><div class="icon">&#10003;</div>No noise messages found</div></td></tr>';
+    } else {
+        noiseBody.innerHTML = noiseItems.map((item, i) => `
+            <tr data-filter="${escHtml((item.content || '') + ' ' + (item.pattern_desc || '')).toLowerCase()}">
+                <td><input type="checkbox" class="noise-cb" data-idx="${i}" onchange="onCheck('noise', ${i}, this.checked)"></td>
+                <td><div class="content-preview" title="${escHtml(item.content)}">${escHtml((item.content || '').substring(0, 80))}</div></td>
+                <td><span class="badge badge-cat-noise">${escHtml(item.pattern_desc || 'noise')}</span></td>
+                <td><span class="badge badge-role">${escHtml(item.role || '\u2014')}</span></td>
+                <td class="num">${escHtml((item.session_id || '').substring(0, 20))}</td>
+            </tr>
+        `).join('');
+    }
+    document.getElementById('tabNoiseBadge').textContent = noiseTotal ? `(${fmtNum(noiseTotal)})` : '';
+    showTruncNote('noise', noiseItems.length, noiseTotal, 'messages');
 
     // Render junk
     junkItems = (data.junk && data.junk.items) || [];
     selectedJunk.clear();
     const junkBody = document.getElementById('junkBody');
+    const junkTotal = s.junk_found || 0;
     if (junkItems.length === 0) {
-        junkBody.innerHTML = `<tr><td colspan="5"><div class="empty-state"><div class="icon">✅</div>No junk messages found</div></td></tr>`;
+        junkBody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><div class="icon">&#10003;</div>No junk messages found</div></td></tr>';
     } else {
         junkBody.innerHTML = junkItems.map((item, i) => `
-            <tr>
-                <td><input type="checkbox" class="junk-cb" data-idx="${i}" ${item.category === 'single_char' ? '' : ''} onchange="onCheckJunk(${i}, this.checked)"></td>
+            <tr data-filter="${escHtml((item.content || '') + ' ' + item.category).toLowerCase()}">
+                <td><input type="checkbox" class="junk-cb" data-idx="${i}" onchange="onCheck('junk', ${i}, this.checked)"></td>
                 <td><div class="content-preview" title="${escHtml(item.content)}">${escHtml(item.content) || '<em style="color:var(--text-dim)">empty</em>'}</div></td>
-                <td><span class="badge badge-role">${escHtml(item.role || '—')}</span></td>
+                <td><span class="badge badge-role">${escHtml(item.role || '\u2014')}</span></td>
                 <td><span class="badge badge-cat-${item.category}">${item.category}</span></td>
-                <td class="num">${escHtml(item.session_id || '—')}</td>
+                <td class="num">${escHtml((item.session_id || '\u2014').substring(0, 20))}</td>
             </tr>
         `).join('');
     }
-    document.getElementById('tabJunkBadge').textContent = junkItems.length ? `(${junkItems.length})` : '';
+    document.getElementById('tabJunkBadge').textContent = junkTotal ? `(${fmtNum(junkTotal)})` : '';
+    showTruncNote('junk', junkItems.length, junkTotal, 'messages');
+
+    // Orphaned embeddings — table + delete button
+    const oe = data.orphaned_embeddings;
+    const oeTotal = oe ? oe.summary.total : 0;
+    document.getElementById('tabOrphanBadge').textContent = oeTotal ? `(${fmtNum(oeTotal)})` : '';
+    document.getElementById('btnDeleteOrphanEmbeds').disabled = oeTotal === 0;
+    document.getElementById('orphanEmbedsInfo').textContent = oeTotal > 0
+        ? `${fmtNum(oeTotal)} orphaned embeddings (~${oe.summary.estimated_savings_mb} MB)`
+        : 'No orphaned embeddings found.';
+    const orphanWrap = document.getElementById('orphanTableWrap');
+    const orphanBody = document.getElementById('orphanBody');
+    if (oe && oe.items && oe.items.length > 0) {
+        orphanBody.innerHTML = oe.items.slice(0, 50).map(item => `
+            <tr>
+                <td class="num">${item.embedding_id}</td>
+                <td class="num">${item.message_id}</td>
+            </tr>
+        `).join('');
+        orphanWrap.style.display = '';
+    } else {
+        orphanWrap.style.display = 'none';
+    }
 
     document.getElementById('results').style.display = 'block';
     updateSelectionCount();
+    checkTableOverflows();
 }
+
+function showTruncNote(prefix, shown, total, unit) {
+    const el = document.getElementById(prefix + 'TruncNote');
+    if (shown < total && total > 0) {
+        el.textContent = `Showing ${fmtNum(shown)} of ${fmtNum(total)} ${unit}`;
+        el.style.display = '';
+    } else {
+        el.style.display = 'none';
+    }
+}
+
+function checkTableOverflows() {
+    document.querySelectorAll('.table-wrap').forEach(wrap => {
+        if (wrap.scrollWidth > wrap.clientWidth) {
+            wrap.classList.add('has-overflow');
+        } else {
+            wrap.classList.remove('has-overflow');
+        }
+    });
+}
+window.addEventListener('resize', checkTableOverflows);
 
 function switchTab(name, btn) {
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -426,27 +691,51 @@ function switchTab(name, btn) {
     document.getElementById('tab-' + name).classList.add('active');
 }
 
+let filterTimers = {};
+function filterTable(type) {
+    clearTimeout(filterTimers[type]);
+    filterTimers[type] = setTimeout(() => {
+        const capType = type.charAt(0).toUpperCase() + type.slice(1);
+        const input = document.getElementById('filter' + capType);
+        const query = (input ? input.value : '').toLowerCase();
+        const tableId = type === 'dupes' ? 'dupeTable' : type === 'noise' ? 'noiseTable' : 'junkTable';
+        const rows = document.querySelectorAll('#' + tableId + ' tbody tr[data-filter]');
+        let visible = 0;
+        rows.forEach(row => {
+            const match = !query || row.getAttribute('data-filter').includes(query);
+            row.style.display = match ? '' : 'none';
+            if (match) visible++;
+        });
+        const countEl = document.getElementById('filter' + capType + 'Count');
+        if (countEl) {
+            countEl.textContent = query ? `${visible} of ${rows.length} shown` : '';
+        }
+    }, 200);
+}
+
+function clearFilter(type) {
+    const capType = type.charAt(0).toUpperCase() + type.slice(1);
+    const input = document.getElementById('filter' + capType);
+    if (input) { input.value = ''; filterTable(type); }
+}
+
 function toggleAll(type, checked) {
-    if (type === 'dupes') {
-        document.querySelectorAll('.dupe-cb').forEach((cb, i) => {
+    // Only toggles visible (filtered) rows — intentional so "select all" respects active filter
+    const cls = type === 'dupes' ? '.dupe-cb' : type === 'noise' ? '.noise-cb' : '.junk-cb';
+    const set = type === 'dupes' ? selectedDupes : type === 'noise' ? selectedNoise : selectedJunk;
+    document.querySelectorAll(cls).forEach(cb => {
+        if (cb.closest('tr').style.display !== 'none') {
+            const idx = parseInt(cb.getAttribute('data-idx'));
             cb.checked = checked;
-            if (checked) selectedDupes.add(i); else selectedDupes.delete(i);
-        });
-    } else {
-        document.querySelectorAll('.junk-cb').forEach((cb, i) => {
-            cb.checked = checked;
-            if (checked) selectedJunk.add(i); else selectedJunk.delete(i);
-        });
-    }
+            if (checked) set.add(idx); else set.delete(idx);
+        }
+    });
     updateSelectionCount();
 }
 
-function onCheckDupe(idx, checked) {
-    if (checked) selectedDupes.add(idx); else selectedDupes.delete(idx);
-    updateSelectionCount();
-}
-function onCheckJunk(idx, checked) {
-    if (checked) selectedJunk.add(idx); else selectedJunk.delete(idx);
+function onCheck(type, idx, checked) {
+    const set = type === 'dupes' ? selectedDupes : type === 'noise' ? selectedNoise : selectedJunk;
+    if (checked) set.add(idx); else set.delete(idx);
     updateSelectionCount();
 }
 
@@ -455,9 +744,18 @@ function getSelectedIds() {
     selectedDupes.forEach(i => {
         if (dupeGroups[i]) ids.push(...dupeGroups[i].delete_ids);
     });
+    selectedNoise.forEach(i => {
+        if (noiseItems[i]) ids.push(noiseItems[i].id);
+    });
     selectedJunk.forEach(i => {
         if (junkItems[i]) ids.push(junkItems[i].id);
     });
+    return ids;
+}
+
+function getAllDupeIds() {
+    const ids = [];
+    dupeGroups.forEach(g => ids.push(...g.delete_ids));
     return ids;
 }
 
@@ -468,20 +766,71 @@ function updateSelectionCount() {
     const deleteBtn = document.getElementById('btnDelete');
     if (total === 0) {
         countEl.textContent = 'No items selected';
+        deleteBtn.textContent = 'Delete Selected';
         deleteBtn.disabled = true;
     } else {
-        countEl.textContent = `${total.toLocaleString()} messages selected (${selectedDupes.size} dup groups + ${selectedJunk.size} junk)`;
+        const parts = [];
+        if (selectedDupes.size) parts.push(selectedDupes.size + ' dup groups');
+        if (selectedNoise.size) parts.push(selectedNoise.size + ' noise');
+        if (selectedJunk.size) parts.push(selectedJunk.size + ' junk');
+        countEl.textContent = `${fmtNum(total)} messages (${parts.join(' + ')})`;
+        deleteBtn.textContent = `Delete ${fmtNum(total)} Messages`;
         deleteBtn.disabled = false;
     }
+}
+
+function buildModalBreakdown(ids) {
+    const lines = [];
+    if (selectedDupes.size) {
+        let dupeCount = 0;
+        selectedDupes.forEach(i => { if (dupeGroups[i]) dupeCount += dupeGroups[i].delete_ids.length; });
+        lines.push(fmtNum(selectedDupes.size) + ' dup groups (' + fmtNum(dupeCount) + ' messages)');
+    }
+    if (selectedNoise.size) lines.push(fmtNum(selectedNoise.size) + ' noise messages');
+    if (selectedJunk.size) lines.push(fmtNum(selectedJunk.size) + ' junk messages');
+    const total = ids.length;
+    let text = 'Delete ' + fmtNum(total) + ' messages?\n\n';
+    text += lines.join('\n') + '\n\n';
+    if (dryRunData && dryRunData.summary.estimated_savings_mb) {
+        text += 'Est. savings: ~' + dryRunData.summary.estimated_savings_mb.toFixed(1) + ' MB\n\n';
+    }
+    text += 'This action is permanent and cannot be undone.';
+    return text;
 }
 
 function confirmDelete() {
     const ids = getSelectedIds();
     if (ids.length === 0) return;
-    document.getElementById('modalText').textContent =
-        `Delete ${ids.length.toLocaleString()} messages? This action is permanent and cannot be undone.`;
+    document.getElementById('modalText').textContent = buildModalBreakdown(ids);
+    document.getElementById('modalText').style.whiteSpace = 'pre-line';
+    document.getElementById('modalConfirmBtn').onclick = executeDelete;
     document.getElementById('modalBackdrop').classList.add('open');
 }
+
+function confirmDeleteAllDupes() {
+    const ids = getAllDupeIds();
+    if (ids.length === 0) return;
+    const s = dryRunData ? dryRunData.summary : {};
+    let text = 'Delete ALL ' + fmtNum(ids.length) + ' duplicate messages?\n\n';
+    text += 'Across ' + fmtNum(s.affected_sessions || dupeGroups.length) + ' sessions.\n';
+    text += 'Est. savings: ~' + (s.estimated_savings_mb || 0).toFixed(1) + ' MB\n\n';
+    text += 'Keeps the oldest copy of each message. This is permanent.';
+    document.getElementById('modalText').textContent = text;
+    document.getElementById('modalText').style.whiteSpace = 'pre-line';
+    document.getElementById('modalConfirmBtn').onclick = executeDeleteAllDupes;
+    document.getElementById('modalBackdrop').classList.add('open');
+}
+
+function confirmDeleteOrphanEmbeds() {
+    const oe = dryRunData && dryRunData.orphaned_embeddings;
+    if (!oe || oe.summary.total === 0) return;
+    document.getElementById('modalText').textContent =
+        'Delete ' + fmtNum(oe.summary.total) + ' orphaned embeddings (~' + oe.summary.estimated_savings_mb + ' MB)?\n\nThis is permanent.';
+    document.getElementById('modalText').style.whiteSpace = 'pre-line';
+    document.getElementById('modalConfirmBtn').onclick = executeDeleteOrphanEmbeds;
+    document.getElementById('modalBackdrop').classList.add('open');
+}
+
 function closeModal() {
     document.getElementById('modalBackdrop').classList.remove('open');
 }
@@ -491,26 +840,108 @@ async function executeDelete() {
     const ids = getSelectedIds();
     const deleteBtn = document.getElementById('btnDelete');
     deleteBtn.disabled = true;
+    deleteBtn.textContent = 'Deleting...';
 
     try {
         const res = await fetch('/api/cleanup/delete', {
             method: 'POST',
+            credentials: 'include',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({ message_ids: ids }),
         });
         if (!res.ok) throw new Error(await res.text());
         const result = await res.json();
         const freedMB = (result.freed_bytes / (1024*1024)).toFixed(1);
-        showToast(`✅ Deleted ${result.deleted.toLocaleString()} messages, freed ~${freedMB} MB`);
-        // Re-run dry run to refresh data
+        showToast('Deleted ' + result.deleted.toLocaleString() + ' messages, freed ~' + freedMB + ' MB');
         await runDryRun();
     } catch (err) {
         showToast('Delete failed: ' + err.message, true);
+        deleteBtn.textContent = 'Delete Selected';
         deleteBtn.disabled = false;
     }
 }
 
-function showToast(msg, isError = false) {
+async function executeDeleteAllDupes() {
+    closeModal();
+    const ids = getAllDupeIds();
+    const allDupesBtn = document.getElementById('btnDeleteAllDupes');
+    allDupesBtn.disabled = true;
+    allDupesBtn.textContent = 'Deleting...';
+
+    try {
+        const res = await fetch('/api/cleanup/delete', {
+            method: 'POST',
+            credentials: 'include',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ message_ids: ids }),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const result = await res.json();
+        const freedMB = (result.freed_bytes / (1024*1024)).toFixed(1);
+        showToast('Deleted ' + result.deleted.toLocaleString() + ' duplicate messages, freed ~' + freedMB + ' MB');
+        await runDryRun();
+    } catch (err) {
+        showToast('Delete failed: ' + err.message, true);
+        allDupesBtn.disabled = false;
+    }
+}
+
+async function executeDeleteOrphanEmbeds() {
+    closeModal();
+    const btn = document.getElementById('btnDeleteOrphanEmbeds');
+    btn.disabled = true;
+    btn.textContent = 'Deleting...';
+
+    try {
+        const res = await fetch('/api/cleanup/delete-orphaned-embeddings', {
+            method: 'POST',
+            credentials: 'include',
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const result = await res.json();
+        const freedMB = (result.freed_bytes / (1024*1024)).toFixed(1);
+        showToast('Deleted ' + result.deleted.toLocaleString() + ' orphaned embeddings, freed ~' + freedMB + ' MB');
+        await runDryRun();
+    } catch (err) {
+        showToast('Delete failed: ' + err.message, true);
+        btn.textContent = 'Delete All Orphaned Embeddings';
+    }
+}
+
+async function loadHistory() {
+    try {
+        const res = await fetch('/api/cleanup/history', { credentials: 'include' });
+        if (!res.ok) return;
+        const history = await res.json();
+        if (!history.length) return;
+
+        document.getElementById('historySection').style.display = 'block';
+        const body = document.getElementById('historyBody');
+        body.innerHTML = history.map(h => `
+            <tr>
+                <td class="num" style="white-space:nowrap">${escHtml(h.ran_at)}</td>
+                <td><span class="badge ${h.mode.includes('delete') ? 'badge-cat-empty' : 'badge-role'}">${escHtml(h.mode)}</span></td>
+                <td class="num">${fmtNum(h.duplicates_found)}</td>
+                <td class="num">${fmtNum(h.junk_found)}</td>
+                <td class="num">${fmtNum(h.noise_found)}</td>
+                <td class="num">${fmtNum(h.orphaned_embeddings_found)}</td>
+                <td class="num-warn">${fmtNum(h.deleted)}</td>
+                <td class="num">${h.freed_bytes ? fmtBytes(h.freed_bytes) : '\u2014'}</td>
+            </tr>
+        `).join('');
+    } catch (err) {
+        // Silent fail — history is non-critical
+    }
+}
+
+function toggleHistory() {
+    const toggle = document.getElementById('historyToggle');
+    const content = document.getElementById('historyContent');
+    toggle.classList.toggle('open');
+    content.classList.toggle('open');
+}
+
+function showToast(msg, isError) {
     const t = document.getElementById('toast');
     t.textContent = msg;
     t.className = isError ? 'error' : '';
@@ -526,6 +957,12 @@ function escHtml(s) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;');
 }
+
+// Load history independently (before dry-run completes)
+document.addEventListener('DOMContentLoaded', () => {
+    loadHistory();
+    runDryRun();
+});
 </script>
 </body>
 </html>

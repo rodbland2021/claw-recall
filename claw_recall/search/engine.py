@@ -88,6 +88,16 @@ def _clear_embedding_cache():
     gc.collect()
 
 
+def invalidate_cache():
+    """Public API to force-invalidate the embedding cache.
+
+    Call after bulk deletions so search doesn't return stale results.
+    The cache will be rebuilt on next semantic search.
+    """
+    with _embedding_lock:
+        _clear_embedding_cache()
+
+
 def cache_status() -> dict:
     """Return observability info about the embedding cache."""
     with _embedding_lock:

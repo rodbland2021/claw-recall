@@ -62,7 +62,8 @@ def generate_deep_link(content: str) -> str | None:
 
 # Templates are in the repo root's templates/ dir
 _REPO_DIR = Path(__file__).resolve().parent.parent.parent
-app = Flask(__name__, template_folder=str(_REPO_DIR / 'templates'))
+app = Flask(__name__, template_folder=str(_REPO_DIR / 'templates'),
+            static_folder=str(_REPO_DIR / 'static'), static_url_path='/static')
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB for session files
 
 REMOTE_INDEX_TEMP_DIR = '/tmp/claw-recall-remote'
@@ -670,7 +671,11 @@ def session_endpoint():
         return jsonify({"error": "Internal error"}), 500
 
 
-from claw_recall.maintenance.dedup import run_dry_run, delete_messages as _delete_messages
+from claw_recall.maintenance.dedup import (
+    run_dry_run, delete_messages as _delete_messages,
+    delete_orphaned_embeddings as _delete_orphaned_embeddings,
+    get_cleanup_history as _get_cleanup_history,
+)
 
 
 @app.route('/cleanup')
@@ -697,9 +702,46 @@ def cleanup_delete():
             return jsonify({"error": "message_ids must be a list"}), 400
         message_ids = [int(x) for x in message_ids]
         result = _delete_messages(str(DB_PATH), message_ids)
+
+        # Invalidate embedding cache after deletion
+        try:
+            from claw_recall.search.engine import invalidate_cache
+            invalidate_cache()
+        except Exception:
+            logging.warning("Could not invalidate embedding cache after delete")
+
         return jsonify(result)
     except Exception as e:
         logging.exception("Delete failed")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/cleanup/delete-orphaned-embeddings', methods=['POST'])
+def cleanup_delete_orphaned_embeddings():
+    try:
+        result = _delete_orphaned_embeddings(str(DB_PATH))
+
+        # Invalidate embedding cache after deletion
+        try:
+            from claw_recall.search.engine import invalidate_cache
+            invalidate_cache()
+        except Exception:
+            logging.warning("Could not invalidate embedding cache after delete")
+
+        return jsonify(result)
+    except Exception as e:
+        logging.exception("Delete orphaned embeddings failed")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/cleanup/history')
+def cleanup_history():
+    try:
+        limit = request.args.get('limit', 20, type=int)
+        history = _get_cleanup_history(str(DB_PATH), limit=limit)
+        return jsonify(history)
+    except Exception as e:
+        logging.exception("Cleanup history failed")
         return jsonify({"error": str(e)}), 500
 
 
