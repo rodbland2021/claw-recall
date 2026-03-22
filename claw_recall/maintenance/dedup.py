@@ -296,7 +296,7 @@ def find_junk(db_path: str, limit: int = 500) -> dict:
                     if emoji_added >= remaining:
                         break
 
-        # Summary counts — all queried from DB for accuracy
+        # Summary counts — empty and orphaned from DB, emoji uses sample count
         total_empty = conn.execute(
             "SELECT COUNT(*) as cnt FROM messages WHERE content IS NULL OR TRIM(content) = ''"
         ).fetchone()['cnt']
@@ -307,16 +307,9 @@ def find_junk(db_path: str, limit: int = 500) -> dict:
             WHERE s.id IS NULL
         """).fetchone()['cnt']
 
-        # Count total single_char properly (not just loop counter)
-        total_single_char = 0
-        sc_cur = conn.execute("""
-            SELECT content FROM messages
-            WHERE LENGTH(content) BETWEEN 1 AND 10
-              AND content IS NOT NULL
-        """)
-        for row in sc_cur.fetchall():
-            if _is_single_emoji(row['content']):
-                total_single_char += 1
+        # Use the collected count for single_char (scanning 31K rows for
+        # ~313 emoji messages takes 0.5s — not worth it for a total count)
+        total_single_char = by_category['single_char']
 
         total = total_empty + total_orphaned + total_single_char
 
@@ -456,6 +449,8 @@ def run_dry_run(db_path: str, categories: list | None = None) -> dict:
     if categories is None:
         categories = ['duplicates', 'junk', 'noise', 'orphaned_embeddings']
 
+    import concurrent.futures
+
     result = {
         'duplicates': None,
         'junk': None,
@@ -481,24 +476,36 @@ def run_dry_run(db_path: str, categories: list | None = None) -> dict:
     finally:
         conn.close()
 
-    if 'duplicates' in categories:
-        dup_result = find_exact_duplicates(db_path)
+    # Run all detection passes in parallel — each opens its own WAL connection
+    futures = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+        if 'duplicates' in categories:
+            futures['duplicates'] = pool.submit(find_exact_duplicates, db_path)
+        if 'junk' in categories:
+            futures['junk'] = pool.submit(find_junk, db_path)
+        if 'noise' in categories:
+            futures['noise'] = pool.submit(find_noise, db_path)
+        if 'orphaned_embeddings' in categories:
+            futures['orphaned_embeddings'] = pool.submit(find_orphaned_embeddings, db_path)
+
+    if 'duplicates' in futures:
+        dup_result = futures['duplicates'].result()
         result['duplicates'] = dup_result
         result['summary']['duplicates_found'] = dup_result['summary']['total_removable']
         result['summary']['estimated_savings_mb'] += dup_result['summary']['estimated_savings_mb']
 
-    if 'junk' in categories:
-        junk_result = find_junk(db_path)
+    if 'junk' in futures:
+        junk_result = futures['junk'].result()
         result['junk'] = junk_result
         result['summary']['junk_found'] = junk_result['summary']['total']
 
-    if 'noise' in categories:
-        noise_result = find_noise(db_path)
+    if 'noise' in futures:
+        noise_result = futures['noise'].result()
         result['noise'] = noise_result
         result['summary']['noise_found'] = noise_result['summary']['total']
 
-    if 'orphaned_embeddings' in categories:
-        orphan_result = find_orphaned_embeddings(db_path)
+    if 'orphaned_embeddings' in futures:
+        orphan_result = futures['orphaned_embeddings'].result()
         result['orphaned_embeddings'] = orphan_result
         result['summary']['orphaned_embeddings_found'] = orphan_result['summary']['total']
         result['summary']['estimated_savings_mb'] += orphan_result['summary']['estimated_savings_mb']
