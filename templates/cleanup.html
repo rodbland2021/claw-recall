@@ -331,6 +331,7 @@
         <button class="btn btn-primary" id="btnDryRun" onclick="runDryRun()">Run Dry Run</button>
         <button class="btn btn-danger" id="btnDeleteAllDupes" onclick="confirmDeleteAllDupes()" style="display:none">Delete All Duplicates</button>
         <button class="btn btn-danger" id="btnDeleteAllNoise" onclick="confirmDeleteAllNoise()" style="display:none">Delete All Noise</button>
+        <button class="btn btn-danger" id="btnDeleteAllJunk" onclick="confirmDeleteAllJunk()" style="display:none">Delete All Junk</button>
         <div class="spinner" id="spinner">
             <div class="spin-ring"></div>
             <span>Scanning DB&hellip;</span>
@@ -578,6 +579,12 @@ function renderResults(data) {
         allNoiseBtn.textContent = 'Delete All Noise (' + fmtNum(s.noise_found) + ')';
         allNoiseBtn.style.display = '';
     } else { allNoiseBtn.style.display = 'none'; }
+
+    const allJunkBtn = document.getElementById('btnDeleteAllJunk');
+    if (s.junk_found > 0) {
+        allJunkBtn.textContent = 'Delete All Junk (' + fmtNum(s.junk_found) + ')';
+        allJunkBtn.style.display = '';
+    } else { allJunkBtn.style.display = 'none'; }
 
     // Render duplicates
     dupeGroups = (data.duplicates && data.duplicates.groups) || [];
@@ -860,6 +867,45 @@ async function executeDeleteAllNoise() {
         const result = await chunkedDelete(ids, btn);
         const freedMB = (result.freed_bytes / (1024*1024)).toFixed(1);
         showToast('Deleted ' + result.deleted.toLocaleString() + ' noise messages, freed ~' + freedMB + ' MB');
+        refreshAfterDelete();
+    } catch (err) {
+        showToast('Delete failed: ' + err.message, true);
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+function confirmDeleteAllJunk() {
+    const s = dryRunData ? dryRunData.summary : {};
+    if (!s.junk_found) return;
+    let text = 'Delete ALL ' + fmtNum(s.junk_found) + ' junk messages?\n\n';
+    const bc = dryRunData.junk ? dryRunData.junk.summary.by_category : {};
+    for (const [cat, count] of Object.entries(bc)) {
+        if (count > 0) text += '  ' + cat + ': ' + fmtNum(count) + '\n';
+    }
+    text += '\nThis is permanent.';
+    document.getElementById('modalText').textContent = text;
+    document.getElementById('modalText').style.whiteSpace = 'pre-line';
+    document.getElementById('modalConfirmBtn').onclick = executeDeleteAllJunk;
+    document.getElementById('modalBackdrop').classList.add('open');
+}
+
+async function executeDeleteAllJunk() {
+    closeModal();
+    const btn = document.getElementById('btnDeleteAllJunk');
+    btn.disabled = true;
+
+    try {
+        btn.textContent = 'Fetching IDs...';
+        const idsRes = await fetch('/api/cleanup/junk-ids', { credentials: 'include' });
+        if (!idsRes.ok) throw new Error(await idsRes.text());
+        const idsData = await idsRes.json();
+        const ids = idsData.ids;
+        if (!ids.length) { showToast('No junk messages to delete'); return; }
+
+        const result = await chunkedDelete(ids, btn);
+        const freedMB = (result.freed_bytes / (1024*1024)).toFixed(1);
+        showToast('Deleted ' + result.deleted.toLocaleString() + ' junk messages, freed ~' + freedMB + ' MB');
         refreshAfterDelete();
     } catch (err) {
         showToast('Delete failed: ' + err.message, true);

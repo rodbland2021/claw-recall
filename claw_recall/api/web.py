@@ -677,6 +677,7 @@ from claw_recall.maintenance.dedup import (
     get_cleanup_history as _get_cleanup_history,
     get_cached_dry_run as _get_cached_dry_run,
     get_all_noise_ids as _get_all_noise_ids,
+    get_all_junk_ids as _get_all_junk_ids,
 )
 
 
@@ -753,6 +754,17 @@ def cleanup_noise_ids():
         return jsonify({'ids': ids, 'total': len(ids)})
     except Exception as e:
         logging.exception("Get noise IDs failed")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/cleanup/junk-ids')
+def cleanup_junk_ids():
+    """Return all junk message IDs for bulk delete."""
+    try:
+        ids = _get_all_junk_ids(str(DB_PATH))
+        return jsonify({'ids': ids, 'total': len(ids)})
+    except Exception as e:
+        logging.exception("Get junk IDs failed")
         return jsonify({"error": str(e)}), 500
 
 

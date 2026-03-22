@@ -584,6 +584,30 @@ def get_all_noise_ids(db_path: str) -> list:
         conn.close()
 
 
+def get_all_junk_ids(db_path: str) -> list:
+    """Return all junk message IDs (empty + orphaned). For bulk delete."""
+    conn = _connect(db_path)
+    try:
+        ids = []
+        # Empty / NULL content
+        cur = conn.execute(
+            "SELECT id FROM messages WHERE content IS NULL OR TRIM(content) = ''"
+        )
+        ids.extend(r['id'] for r in cur.fetchall())
+
+        # Orphaned messages (no parent session)
+        cur = conn.execute("""
+            SELECT m.id FROM messages m
+            LEFT JOIN sessions s ON m.session_id = s.id
+            WHERE s.id IS NULL
+        """)
+        ids.extend(r['id'] for r in cur.fetchall())
+
+        return ids
+    finally:
+        conn.close()
+
+
 # SQL LIKE prefixes for noise pre-filtering (shared between find_noise and get_all_noise_ids)
 SQL_LIKE_FILTERS = [
     "HEARTBEAT_OK",
