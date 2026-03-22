@@ -317,8 +317,8 @@
             <div class="card-value warning" id="cardJunk">&mdash;</div>
         </div>
         <div class="card loading">
-            <div class="card-label">Orphan Embeds</div>
-            <div class="card-value warning" id="cardOrphanEmbeds">&mdash;</div>
+            <div class="card-label">Similar</div>
+            <div class="card-value danger" id="cardSimilar">&mdash;</div>
         </div>
         <div class="card loading">
             <div class="card-label">Est. Savings</div>
@@ -604,7 +604,7 @@ function renderResults(data) {
     document.getElementById('cardDupes').textContent = fmtNum(s.duplicates_found);
     document.getElementById('cardNoise').textContent = fmtNum(s.noise_found);
     document.getElementById('cardJunk').textContent = fmtNum(s.junk_found);
-    document.getElementById('cardOrphanEmbeds').textContent = fmtNum(s.orphaned_embeddings_found);
+    document.getElementById('cardSimilar').textContent = fmtNum(s.similar_found);
     document.getElementById('cardSavings').textContent =
         s.estimated_savings_mb ? s.estimated_savings_mb.toFixed(1) + ' MB' : '0 MB';
 

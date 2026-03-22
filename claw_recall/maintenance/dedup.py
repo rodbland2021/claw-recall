@@ -318,6 +318,30 @@ def find_cross_session_duplicates(db_path: str, similarity: str = 'exact', limit
         conn.close()
 
 
+def _count_cross_session_duplicates(db_path: str) -> dict:
+    """Fast count-only query for cross-session duplicates. No per-group detail."""
+    conn = _connect(db_path)
+    try:
+        row = conn.execute("""
+            SELECT COUNT(*) as groups, SUM(total - 1) as removable,
+                   SUM(avg_bytes * (total - 1)) as bytes_wasted
+            FROM (
+                SELECT COUNT(*) as total, AVG(LENGTH(content)) as avg_bytes
+                FROM messages
+                WHERE content IS NOT NULL AND LENGTH(content) > 20
+                GROUP BY content
+                HAVING COUNT(DISTINCT session_id) >= 2
+            )
+        """).fetchone()
+        return {
+            'total_groups': row['groups'] or 0,
+            'total_removable': row['removable'] or 0,
+            'estimated_savings_mb': round((row['bytes_wasted'] or 0) / (1024 * 1024), 2),
+        }
+    finally:
+        conn.close()
+
+
 def find_junk(db_path: str, limit: int = 500) -> dict:
     """
     Find junk/noise messages:
@@ -557,7 +581,7 @@ def run_dry_run(db_path: str, categories: list | None = None) -> dict:
         Combined results dict with all detection results and summary.
     """
     if categories is None:
-        categories = ['duplicates', 'junk', 'noise', 'orphaned_embeddings']
+        categories = ['duplicates', 'junk', 'noise', 'orphaned_embeddings', 'similar']
 
     import concurrent.futures
 
@@ -566,6 +590,7 @@ def run_dry_run(db_path: str, categories: list | None = None) -> dict:
         'junk': None,
         'noise': None,
         'orphaned_embeddings': None,
+        'similar_count': None,
         'summary': {
             'total_messages': 0,
             'total_sessions': 0,
@@ -573,6 +598,7 @@ def run_dry_run(db_path: str, categories: list | None = None) -> dict:
             'junk_found': 0,
             'noise_found': 0,
             'orphaned_embeddings_found': 0,
+            'similar_found': 0,
             'estimated_savings_mb': 0,
         }
     }
@@ -588,7 +614,7 @@ def run_dry_run(db_path: str, categories: list | None = None) -> dict:
 
     # Run all detection passes in parallel — each opens its own WAL connection
     futures = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
         if 'duplicates' in categories:
             futures['duplicates'] = pool.submit(find_exact_duplicates, db_path)
         if 'junk' in categories:
@@ -597,6 +623,8 @@ def run_dry_run(db_path: str, categories: list | None = None) -> dict:
             futures['noise'] = pool.submit(find_noise, db_path)
         if 'orphaned_embeddings' in categories:
             futures['orphaned_embeddings'] = pool.submit(find_orphaned_embeddings, db_path)
+        if 'similar' in categories:
+            futures['similar'] = pool.submit(_count_cross_session_duplicates, db_path)
 
     if 'duplicates' in futures:
         dup_result = futures['duplicates'].result()
@@ -619,6 +647,12 @@ def run_dry_run(db_path: str, categories: list | None = None) -> dict:
         result['orphaned_embeddings'] = orphan_result
         result['summary']['orphaned_embeddings_found'] = orphan_result['summary']['total']
         result['summary']['estimated_savings_mb'] += orphan_result['summary']['estimated_savings_mb']
+
+    if 'similar' in futures:
+        similar_count = futures['similar'].result()
+        result['similar_count'] = similar_count
+        result['summary']['similar_found'] = similar_count['total_removable']
+        result['summary']['estimated_savings_mb'] += similar_count['estimated_savings_mb']
 
     # Log the dry run
     _log_cleanup_run(db_path, 'dry_run', result['summary'])
