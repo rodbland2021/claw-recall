@@ -5,6 +5,39 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.4.0] — 2026-03-23
+
+### Added
+- **DB Cleanup UI** (`/cleanup`) — web interface for reviewing and removing duplicate, noise, junk, and orphaned data
+- **Cross-session duplicate detection** — finds identical content indexed from multiple session files (active + archived copies). Similarity scoring at three tiers: Exact (1.0), High (0.95), Medium (0.85)
+- **Expandable detail view** — click any similar group to see all copies side-by-side with KEEP/REMOVE labels, session IDs, agents, and timestamps
+- **Noise pattern detection** — identifies HEARTBEAT_OK, NO_REPLY, boot check prompts, gateway status messages, health check webhooks
+- **Junk detection** — empty/NULL content, orphaned messages (no parent session), single-emoji messages
+- **Orphaned embedding detection** — embeddings whose parent message no longer exists (~6KB each)
+- **Quick-action delete buttons** — Delete All Duplicates, Delete All Noise, Delete All Junk, Delete All Similar with chunked progress
+- **Cleanup run history** — `cleanup_runs` table logs every dry-run and delete with timestamps and counts
+- **Snapshot cache** — dry-run results cached to disk (10min TTL) for instant page loads
+- **Ingest-time noise filter** — noise messages (heartbeats, boot checks, gateway status) skipped during indexing before they enter the database
+- **Cross-session dedup at ingest** — same session UUID from different paths (active vs archive) only indexed once, preventing the #1 source of database bloat
+- **`exclude.conf.default`** — ships with the repo documenting all built-in filters (file exclusions, cross-session dedup, noise content filter, tool result filtering, secret redaction)
+- 34 new tests in `tests/test_dedup.py`
+
+### Performance
+- **Parallel detection** — all detection passes run in concurrent threads via ThreadPoolExecutor
+- **Optimized GROUP BY** — dropped `content` column from duplicate detection (6.7x faster)
+- **Cached page loads** — 0.3s from cache vs 1.5s fresh scan vs 8s+ original
+- **Background post-delete refresh** — UI stays responsive after deletions
+- **Chunked client-side deletes** — sends 5,000 IDs per batch with progress indicator
+
+### Fixed
+- `credentials: 'include'` on all fetch calls (required for OAuth2 proxy)
+- Embedding cache invalidation after bulk deletes (prevents stale search results)
+- Session `message_count` updated after deleting duplicate messages
+- FTS5 integrity check after bulk delete operations
+- Single-emoji junk count accuracy (was using limited loop counter, not full DB count)
+
+---
+
 ## [2.3.0] — 2026-03-18
 
 ### Added
