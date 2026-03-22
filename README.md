@@ -3,7 +3,7 @@
 [![Tests](https://github.com/rodbland2021/claw-recall/actions/workflows/test.yml/badge.svg)](https://github.com/rodbland2021/claw-recall/actions/workflows/test.yml)
 [![Discord](https://img.shields.io/discord/1479309142060695664?color=5865F2&logo=discord&logoColor=white&label=Discord)](https://discord.gg/D7YcxVpQAB)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.3.0-blue)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.4.0-blue)](CHANGELOG.md)
 
 **Persistent, searchable memory for AI agents.** When context compaction erases what your agent was just working on, Claw Recall brings it back.
 
@@ -33,6 +33,17 @@ Claw Recall indexes all your agent conversations into a searchable SQLite databa
 - **Remote indexing** — HTTP upload endpoint for multi-machine setups
 - **Embedding cache** — full matrix in RAM for ~50ms semantic search across hundreds of thousands of messages
 - **Self-hosted** — your data stays on your machine, under $1/month to run
+- **Database cleanup** — web UI for detecting and removing duplicates, noise, junk, and cross-session copies with similarity scoring and visual comparison
+
+### Data Quality Pipeline
+
+Claw Recall prevents database bloat at three levels:
+
+1. **Ingest filtering** — noise messages (heartbeats, boot checks, gateway status) are skipped before they enter the database. Cross-session dedup prevents the same session from being indexed twice when it appears in both active and archive paths.
+2. **File exclusions** — configurable glob patterns (`exclude.conf`) skip boot check sessions, compaction artifacts, and backup files entirely.
+3. **Cleanup UI** (`/cleanup`) — on-demand detection and removal of duplicates, noise, junk, orphaned embeddings, and cross-session copies. Expandable detail view lets you compare matched messages before deleting. Similarity scoring at three tiers (Exact 1.0, High 0.95, Medium 0.85).
+
+See [`exclude.conf.default`](exclude.conf.default) for the full list of built-in filters.
 
 **[Quick Start](#quick-start)** | **[How It Works](#how-it-works)** | **[MCP Tools](#mcp-tools)** | **[CLI](#cli-reference)** | **[REST API](#rest-api)** | **[Full Guide](docs/guide.md)** | **[Community](#community)**
 
