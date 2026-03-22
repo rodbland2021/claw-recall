@@ -1,0 +1,49 @@
+# Claw Recall — Default Exclusion & Filter Configuration
+#
+# Copy to exclude.conf and customize for your installation.
+# exclude.conf is gitignored — local overrides won't affect the repo.
+#
+# === FILE-LEVEL EXCLUSIONS ===
+# Files matching these glob patterns are skipped entirely during indexing.
+# One pattern per line. Matched against filename only, not full path.
+
+# OpenClaw boot check sessions (system noise, not real conversations)
+boot-*.jsonl
+
+# Compaction artifacts (pre-compaction snapshots)
+acompact-*.jsonl
+compact-*.jsonl
+
+# Compaction backup files (contain same content as the original session)
+*.bak-*
+
+# === BUILT-IN FILTERS (no config needed) ===
+#
+# The following filters are built into the indexer and run automatically:
+#
+# 1. CROSS-SESSION DEDUP
+#    When the same session UUID appears in multiple paths (e.g., active
+#    session in agents/sessions/ AND archived copy in agents-archive/),
+#    only the first-indexed copy is kept. Prevents the #1 source of
+#    database bloat.
+#
+# 2. NOISE CONTENT FILTER
+#    Messages matching these patterns are skipped at ingest time:
+#    - HEARTBEAT_OK (heartbeat pings)
+#    - NO_REPLY (no-reply markers)
+#    - Boot check prompts ("You are running a boot check...")
+#    - Gateway restart status messages
+#    - OpenClaw Health Check Report webhooks
+#    - SECURITY NOTICE external content wrappers
+#    - Boot instruction footers
+#
+#    To add custom noise patterns, edit NOISE_PATTERNS in
+#    claw_recall/indexing/indexer.py (_NOISE_CONTENT_PATTERNS list).
+#
+# 3. TOOL RESULT FILTERING
+#    Messages with role 'tool_result' or 'tool_use' are always skipped
+#    (large JSON payloads with no conversational value).
+#
+# 4. SECRET REDACTION
+#    API keys, tokens, passwords, and credentials are redacted before
+#    storage (24 built-in patterns + custom patterns from redact_patterns.conf).

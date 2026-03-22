@@ -81,6 +81,27 @@ def _is_noise_content(content: str) -> bool:
     return False
 
 
+_UUID_RE = _re.compile(r'([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})')
+
+
+def _extract_session_uuid(filepath: Path) -> str | None:
+    """Extract session UUID from a session filename.
+
+    Handles both formats:
+      agents/main/sessions/00042d69-0c1c-4ac4-a7ff-95decb61900d.jsonl
+      agents-archive/agent-main-cron-...-00042d69-0c1c-4ac4-a7ff-95decb61900d-20260220.jsonl
+    """
+    # Check stem first (simple case: UUID.jsonl)
+    stem = filepath.stem.split('.')[0]  # handle .jsonl.bak etc
+    if _UUID_RE.fullmatch(stem):
+        return stem
+    # Archive format: last UUID in the filename
+    matches = _UUID_RE.findall(filepath.name)
+    if matches:
+        return matches[-1]
+    return None
+
+
 def is_excluded(filepath: Path) -> bool:
     """Check if a file should be excluded from indexing based on exclude.conf patterns."""
     name = filepath.name
@@ -491,7 +512,20 @@ def index_session_file(
     canonical_source = source_file_override or str(filepath)
     current_size = filepath.stat().st_size
 
-    # Check if already indexed
+    # Cross-session dedup: extract session UUID from filename and check if
+    # this session was already indexed from a different source file.
+    # Prevents duplicates when the same session appears in both
+    # agents/sessions/ (active) and agents-archive/ (archived).
+    session_uuid = _extract_session_uuid(filepath)
+    if session_uuid:
+        existing_session = conn.execute(
+            "SELECT source_file FROM sessions WHERE id = ?",
+            (session_uuid,)
+        ).fetchone()
+        if existing_session and existing_session[0] != canonical_source:
+            return {'status': 'skipped', 'reason': 'session already indexed from ' + existing_session[0]}
+
+    # Check if already indexed (same source file)
     cursor = conn.execute(
         "SELECT id, file_size, message_count, last_byte_offset FROM index_log WHERE source_file = ?",
         (canonical_source,)
