@@ -579,6 +579,8 @@ async function runDryRun() {
     setCardsLoading(true);
     document.getElementById('results').style.display = 'none';
     document.getElementById('btnDeleteAllDupes').style.display = 'none';
+    document.getElementById('btnDeleteAllNoise').style.display = 'none';
+    document.getElementById('btnDeleteAllJunk').style.display = 'none';
 
     try {
         const res = await fetch('/api/cleanup/dry-run', { method: 'POST', credentials: 'include' });
@@ -590,6 +592,7 @@ async function runDryRun() {
         showToast('Dry-run failed: ' + err.message, true);
     } finally {
         btn.disabled = false;
+        btn.textContent = 'Run Dry Run';
         spinner.classList.remove('active');
         setCardsLoading(false);
     }
