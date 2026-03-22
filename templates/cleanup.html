@@ -273,6 +273,37 @@
         #toast.show { transform: translateY(0); opacity: 1; }
         #toast.error { border-color: var(--color-danger); color: var(--color-danger); }
 
+        /* Expandable detail rows for Similar tab */
+        .expand-btn {
+            background: none; border: none; color: var(--text-muted);
+            cursor: pointer; font-size: 14px; transition: transform 0.2s ease;
+            padding: 2px 6px;
+        }
+        .expand-btn:hover { color: var(--text-primary); }
+        .expand-btn.open { transform: rotate(90deg); }
+        .detail-row td { padding: 0 !important; }
+        .detail-content {
+            background: var(--bg-body); padding: var(--space-md);
+            border-left: 3px solid var(--accent-blue-dark);
+            margin: 0;
+        }
+        .detail-content .msg-card {
+            background: var(--bg-card); border: 1px solid var(--border-card);
+            border-radius: var(--radius-base); padding: var(--space-sm) var(--space-md);
+            margin-bottom: var(--space-sm); font-size: 12px;
+        }
+        .detail-content .msg-card.kept {
+            border-color: var(--color-success);
+        }
+        .detail-content .msg-meta {
+            color: var(--text-muted); font-size: 11px; margin-bottom: 4px;
+        }
+        .detail-content .msg-text {
+            color: var(--text-secondary); font-family: var(--font-mono);
+            font-size: 12px; white-space: pre-wrap; word-break: break-word;
+            max-height: 120px; overflow-y: auto;
+        }
+
         @media (max-width: 700px) {
             .cards { grid-template-columns: repeat(3, 1fr); gap: var(--space-sm); }
             .card { padding: var(--space-sm) var(--space-xs); }
@@ -473,6 +504,7 @@
                     <option value="medium">Medium (0.85) — first 200 chars</option>
                 </select>
                 <button class="btn btn-primary btn-sm" id="btnScanSimilar" onclick="scanSimilar()">Scan</button>
+                <button class="btn btn-danger btn-sm" id="btnDeleteAllSimilar" onclick="confirmDeleteAllSimilar()" style="display:none">Delete All Similar</button>
                 <div class="spinner" id="similarSpinner">
                     <div class="spin-ring"></div>
                     <span>Scanning...</span>
@@ -483,7 +515,7 @@
                 <table>
                     <thead>
                         <tr>
-                            <th><input type="checkbox" id="selectAllSimilar" onchange="toggleAllSimilar(this.checked)"></th>
+                            <th style="width:30px"></th>
                             <th>Content</th>
                             <th>Role</th>
                             <th>Score</th>
@@ -495,7 +527,6 @@
                     <tbody id="similarBody"></tbody>
                 </table>
             </div>
-            <button class="btn btn-danger btn-sm" id="btnDeleteAllSimilar" onclick="confirmDeleteAllSimilar()" style="display:none; margin-top: var(--space-md);">Delete All Similar</button>
         </div>
 
         <!-- Bottom bar -->
@@ -805,9 +836,6 @@ function getSelectedIds() {
     selectedJunk.forEach(i => {
         if (junkItems[i]) ids.push(junkItems[i].id);
     });
-    selectedSimilar.forEach(i => {
-        if (similarGroups[i]) ids.push(...similarGroups[i].delete_ids);
-    });
     return ids;
 }
 
@@ -831,7 +859,6 @@ function updateSelectionCount() {
         if (selectedDupes.size) parts.push(selectedDupes.size + ' dup groups');
         if (selectedNoise.size) parts.push(selectedNoise.size + ' noise');
         if (selectedJunk.size) parts.push(selectedJunk.size + ' junk');
-        if (selectedSimilar.size) parts.push(selectedSimilar.size + ' similar groups');
         countEl.textContent = `${fmtNum(total)} messages (${parts.join(' + ')})`;
         deleteBtn.textContent = `Delete ${fmtNum(total)} Messages`;
         deleteBtn.disabled = false;
@@ -1135,6 +1162,7 @@ async function scanSimilar() {
     const level = document.getElementById('similarityLevel').value;
     btn.disabled = true;
     spinner.classList.add('active');
+    document.getElementById('btnDeleteAllSimilar').style.display = 'none';
 
     try {
         const res = await fetch('/api/cleanup/similar', {
@@ -1161,29 +1189,36 @@ function renderSimilar(data) {
 
     document.getElementById('tabSimilarBadge').textContent = s.total_removable ? `(${fmtNum(s.total_removable)})` : '';
     document.getElementById('similarSummary').textContent =
-        fmtNum(s.total_groups) + ' groups, ' + fmtNum(s.total_removable) + ' removable messages, ~' +
-        (s.estimated_savings_mb || 0).toFixed(1) + ' MB reclaimable (score: ' + s.score + ')';
+        fmtNum(s.total_groups) + ' groups, ' + fmtNum(s.total_removable) + ' removable, ~' +
+        (s.estimated_savings_mb || 0).toFixed(1) + ' MB (score: ' + s.score + ')';
 
     const body = document.getElementById('similarBody');
     const wrap = document.getElementById('similarTableWrap');
     const delBtn = document.getElementById('btnDeleteAllSimilar');
 
     if (similarGroups.length === 0) {
-        body.innerHTML = '<tr><td colspan="7"><div class="empty-state"><div class="icon">&#10003;</div>No similar messages found at this threshold</div></td></tr>';
+        body.innerHTML = '<tr><td colspan="7"><div class="empty-state"><div class="icon">&#10003;</div>No similar messages found</div></td></tr>';
         wrap.style.display = '';
         delBtn.style.display = 'none';
         return;
     }
 
     body.innerHTML = similarGroups.map((g, i) => `
-        <tr>
-            <td><input type="checkbox" class="similar-cb" data-idx="${i}" onchange="onCheckSimilar(${i}, this.checked)"></td>
+        <tr class="similar-row" data-idx="${i}" onclick="toggleSimilarDetail(${i}, this)">
+            <td><button class="expand-btn" data-idx="${i}">&#9654;</button></td>
             <td><div class="content-preview" title="${escHtml(g.content_preview)}">${escHtml((g.content_preview || '').substring(0, 80))}</div></td>
             <td><span class="badge badge-role">${escHtml(g.role || '\u2014')}</span></td>
             <td class="num">${g.score}</td>
             <td class="num-warn">${fmtNum(g.copies)}</td>
             <td class="num">${fmtNum(g.sessions)}</td>
             <td class="num">${fmtBytes(g.bytes_saved)}</td>
+        </tr>
+        <tr class="detail-row" id="detail-${i}" style="display:none">
+            <td colspan="7">
+                <div class="detail-content" id="detail-content-${i}">
+                    <div style="color:var(--text-muted); font-size:12px; padding:8px 0;">Click to load message details...</div>
+                </div>
+            </td>
         </tr>
     `).join('');
 
@@ -1192,26 +1227,49 @@ function renderSimilar(data) {
     delBtn.style.display = '';
 }
 
-function onCheckSimilar(idx, checked) {
-    if (checked) selectedSimilar.add(idx); else selectedSimilar.delete(idx);
-    updateSelectionCount();
-}
+async function toggleSimilarDetail(idx, rowEl) {
+    const detailRow = document.getElementById('detail-' + idx);
+    const expandBtn = rowEl.querySelector('.expand-btn');
+    const contentDiv = document.getElementById('detail-content-' + idx);
 
-function toggleAllSimilar(checked) {
-    document.querySelectorAll('.similar-cb').forEach(cb => {
-        const idx = parseInt(cb.getAttribute('data-idx'));
-        cb.checked = checked;
-        if (checked) selectedSimilar.add(idx); else selectedSimilar.delete(idx);
-    });
-    updateSelectionCount();
-}
+    if (detailRow.style.display === 'none') {
+        detailRow.style.display = '';
+        expandBtn.classList.add('open');
 
-function getSelectedSimilarIds() {
-    const ids = [];
-    selectedSimilar.forEach(i => {
-        if (similarGroups[i]) ids.push(...similarGroups[i].delete_ids);
-    });
-    return ids;
+        // Load message details if not already loaded
+        if (!contentDiv.dataset.loaded) {
+            contentDiv.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:8px 0">Loading...</div>';
+            try {
+                const g = similarGroups[idx];
+                const res = await fetch('/api/cleanup/similar-group', {
+                    method: 'POST', credentials: 'include',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ keep_id: g.keep_id }),
+                });
+                if (!res.ok) throw new Error('Failed to load');
+                const data = await res.json();
+
+                contentDiv.innerHTML = data.messages.map(m => {
+                    const isKept = m.id === g.keep_id;
+                    return `<div class="msg-card ${isKept ? 'kept' : ''}">
+                        <div class="msg-meta">
+                            ${isKept ? '<span style="color:var(--color-success);font-weight:600">KEEP</span> ' : '<span style="color:var(--color-danger)">REMOVE</span> '}
+                            ID: ${m.id} | Session: ${(m.session_id || '').substring(0, 25)}
+                            | Agent: ${escHtml(m.agent_id || '\u2014')}
+                            | ${escHtml(m.timestamp || '\u2014')}
+                        </div>
+                        <div class="msg-text">${escHtml(m.content_preview)}</div>
+                    </div>`;
+                }).join('');
+                contentDiv.dataset.loaded = '1';
+            } catch (err) {
+                contentDiv.innerHTML = '<div style="color:var(--color-danger);font-size:12px;padding:8px 0">Failed to load details</div>';
+            }
+        }
+    } else {
+        detailRow.style.display = 'none';
+        expandBtn.classList.remove('open');
+    }
 }
 
 function confirmDeleteAllSimilar() {
@@ -1233,7 +1291,6 @@ async function executeDeleteAllSimilar() {
     const level = document.getElementById('similarityLevel').value;
 
     try {
-        // Fetch all delete IDs from server
         btn.textContent = 'Fetching IDs...';
         const idsRes = await fetch('/api/cleanup/similar-ids', {
             method: 'POST', credentials: 'include',

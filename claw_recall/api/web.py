@@ -759,6 +759,42 @@ def cleanup_noise_ids():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route('/api/cleanup/similar-group', methods=['POST'])
+def cleanup_similar_group():
+    """Return all messages in a similar group (by keep_id content lookup)."""
+    try:
+        data = request.get_json(force=True)
+        keep_id = data.get('keep_id')
+        if not keep_id:
+            return jsonify({"error": "keep_id required"}), 400
+        conn = sqlite3.connect(str(DB_PATH), timeout=60)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.row_factory = sqlite3.Row
+        # Get the content of the keep message
+        keep_row = conn.execute(
+            "SELECT content FROM messages WHERE id = ?", (keep_id,)
+        ).fetchone()
+        if not keep_row:
+            conn.close()
+            return jsonify({"error": "Message not found"}), 404
+        # Find all messages with matching content
+        cur = conn.execute("""
+            SELECT m.id, m.session_id, m.role, m.timestamp,
+                   SUBSTR(m.content, 1, 500) as content_preview,
+                   s.agent_id, s.channel
+            FROM messages m
+            LEFT JOIN sessions s ON m.session_id = s.id
+            WHERE m.content = ?
+            ORDER BY m.id
+        """, (keep_row['content'],))
+        messages = [dict(r) for r in cur.fetchall()]
+        conn.close()
+        return jsonify({'messages': messages, 'keep_id': keep_id, 'total': len(messages)})
+    except Exception as e:
+        logging.exception("Similar group lookup failed")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route('/api/cleanup/similar-ids', methods=['POST'])
 def cleanup_similar_ids():
     """Return all cross-session duplicate IDs for bulk delete."""
