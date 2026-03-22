@@ -675,12 +675,23 @@ from claw_recall.maintenance.dedup import (
     run_dry_run, delete_messages as _delete_messages,
     delete_orphaned_embeddings as _delete_orphaned_embeddings,
     get_cleanup_history as _get_cleanup_history,
+    get_cached_dry_run as _get_cached_dry_run,
+    get_all_noise_ids as _get_all_noise_ids,
 )
 
 
 @app.route('/cleanup')
 def cleanup_page():
     return render_template('cleanup.html')
+
+
+@app.route('/api/cleanup/cached')
+def cleanup_cached():
+    """Return cached dry-run result for instant page loads."""
+    cached = _get_cached_dry_run()
+    if cached:
+        return jsonify(cached)
+    return jsonify(None), 204
 
 
 @app.route('/api/cleanup/dry-run', methods=['POST'])
@@ -731,6 +742,17 @@ def cleanup_delete_orphaned_embeddings():
         return jsonify(result)
     except Exception as e:
         logging.exception("Delete orphaned embeddings failed")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/cleanup/noise-ids')
+def cleanup_noise_ids():
+    """Return all noise message IDs for bulk delete."""
+    try:
+        ids = _get_all_noise_ids(str(DB_PATH))
+        return jsonify({'ids': ids, 'total': len(ids)})
+    except Exception as e:
+        logging.exception("Get noise IDs failed")
         return jsonify({"error": str(e)}), 500
 
 

@@ -330,6 +330,7 @@
     <div class="toolbar">
         <button class="btn btn-primary" id="btnDryRun" onclick="runDryRun()">Run Dry Run</button>
         <button class="btn btn-danger" id="btnDeleteAllDupes" onclick="confirmDeleteAllDupes()" style="display:none">Delete All Duplicates</button>
+        <button class="btn btn-danger" id="btnDeleteAllNoise" onclick="confirmDeleteAllNoise()" style="display:none">Delete All Noise</button>
         <div class="spinner" id="spinner">
             <div class="spin-ring"></div>
             <span>Scanning DB&hellip;</span>
@@ -565,12 +566,18 @@ function renderResults(data) {
     document.getElementById('cardSavings').textContent =
         s.estimated_savings_mb ? s.estimated_savings_mb.toFixed(1) + ' MB' : '0 MB';
 
-    // Show "Delete All Duplicates" quick-action if there are dupes
+    // Show quick-action buttons
     const allDupesBtn = document.getElementById('btnDeleteAllDupes');
     if (s.duplicates_found > 0) {
         allDupesBtn.textContent = 'Delete All Duplicates (' + fmtNum(s.duplicates_found) + ')';
         allDupesBtn.style.display = '';
-    }
+    } else { allDupesBtn.style.display = 'none'; }
+
+    const allNoiseBtn = document.getElementById('btnDeleteAllNoise');
+    if (s.noise_found > 0) {
+        allNoiseBtn.textContent = 'Delete All Noise (' + fmtNum(s.noise_found) + ')';
+        allNoiseBtn.style.display = '';
+    } else { allNoiseBtn.style.display = 'none'; }
 
     // Render duplicates
     dupeGroups = (data.duplicates && data.duplicates.groups) || [];
@@ -821,6 +828,46 @@ function confirmDeleteAllDupes() {
     document.getElementById('modalBackdrop').classList.add('open');
 }
 
+function confirmDeleteAllNoise() {
+    const s = dryRunData ? dryRunData.summary : {};
+    if (!s.noise_found) return;
+    let text = 'Delete ALL ' + fmtNum(s.noise_found) + ' noise messages?\n\n';
+    const bp = dryRunData.noise ? dryRunData.noise.summary.by_pattern : {};
+    for (const [pattern, count] of Object.entries(bp)) {
+        text += '  ' + pattern + ': ' + fmtNum(count) + '\n';
+    }
+    text += '\nThis is permanent.';
+    document.getElementById('modalText').textContent = text;
+    document.getElementById('modalText').style.whiteSpace = 'pre-line';
+    document.getElementById('modalConfirmBtn').onclick = executeDeleteAllNoise;
+    document.getElementById('modalBackdrop').classList.add('open');
+}
+
+async function executeDeleteAllNoise() {
+    closeModal();
+    const btn = document.getElementById('btnDeleteAllNoise');
+    btn.disabled = true;
+
+    try {
+        // Fetch all noise IDs from server (avoids sending 500-item limit)
+        btn.textContent = 'Fetching IDs...';
+        const idsRes = await fetch('/api/cleanup/noise-ids', { credentials: 'include' });
+        if (!idsRes.ok) throw new Error(await idsRes.text());
+        const idsData = await idsRes.json();
+        const ids = idsData.ids;
+        if (!ids.length) { showToast('No noise messages to delete'); return; }
+
+        const result = await chunkedDelete(ids, btn);
+        const freedMB = (result.freed_bytes / (1024*1024)).toFixed(1);
+        showToast('Deleted ' + result.deleted.toLocaleString() + ' noise messages, freed ~' + freedMB + ' MB');
+        await runDryRun();
+    } catch (err) {
+        showToast('Delete failed: ' + err.message, true);
+    } finally {
+        btn.disabled = false;
+    }
+}
+
 function confirmDeleteOrphanEmbeds() {
     const oe = dryRunData && dryRunData.orphaned_embeddings;
     if (!oe || oe.summary.total === 0) return;
@@ -971,9 +1018,29 @@ function escHtml(s) {
         .replace(/"/g, '&quot;');
 }
 
-// Load history independently (before dry-run completes)
-document.addEventListener('DOMContentLoaded', () => {
+// Load cached results instantly, then history; fresh scan available via button
+document.addEventListener('DOMContentLoaded', async () => {
     loadHistory();
+    // Try cached result first for instant render
+    try {
+        const res = await fetch('/api/cleanup/cached', { credentials: 'include' });
+        if (res.ok && res.status === 200) {
+            const cached = await res.json();
+            if (cached) {
+                dryRunData = cached;
+                renderResults(cached);
+                setCardsLoading(false);
+                // Show cache age indicator
+                if (cached.cache_age_seconds != null) {
+                    const mins = Math.round(cached.cache_age_seconds / 60);
+                    document.getElementById('btnDryRun').textContent = 'Refresh (cached ' + mins + 'm ago)';
+                }
+                return; // Don't auto-scan
+            }
+        }
+    } catch (err) {
+        // No cache — fall through to fresh scan
+    }
     runDryRun();
 });
 </script>
