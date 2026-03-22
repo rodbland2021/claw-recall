@@ -860,7 +860,7 @@ async function executeDeleteAllNoise() {
         const result = await chunkedDelete(ids, btn);
         const freedMB = (result.freed_bytes / (1024*1024)).toFixed(1);
         showToast('Deleted ' + result.deleted.toLocaleString() + ' noise messages, freed ~' + freedMB + ' MB');
-        await runDryRun();
+        refreshAfterDelete();
     } catch (err) {
         showToast('Delete failed: ' + err.message, true);
     } finally {
@@ -918,7 +918,7 @@ async function executeDelete() {
         const result = await chunkedDelete(ids, deleteBtn);
         const freedMB = (result.freed_bytes / (1024*1024)).toFixed(1);
         showToast('Deleted ' + result.deleted.toLocaleString() + ' messages, freed ~' + freedMB + ' MB');
-        await runDryRun();
+        refreshAfterDelete();
     } catch (err) {
         showToast('Delete failed: ' + err.message, true);
     } finally {
@@ -937,7 +937,7 @@ async function executeDeleteAllDupes() {
         const result = await chunkedDelete(ids, allDupesBtn);
         const freedMB = (result.freed_bytes / (1024*1024)).toFixed(1);
         showToast('Deleted ' + result.deleted.toLocaleString() + ' duplicate messages, freed ~' + freedMB + ' MB');
-        await runDryRun();
+        refreshAfterDelete();
     } catch (err) {
         showToast('Delete failed: ' + err.message, true);
     } finally {
@@ -961,7 +961,7 @@ async function executeDeleteOrphanEmbeds() {
         const result = await res.json();
         const freedMB = (result.freed_bytes / (1024*1024)).toFixed(1);
         showToast('Deleted ' + result.deleted.toLocaleString() + ' orphaned embeddings, freed ~' + freedMB + ' MB');
-        await runDryRun();
+        refreshAfterDelete();
     } catch (err) {
         showToast('Delete failed: ' + err.message, true);
         btn.textContent = 'Delete All Orphaned Embeddings';
@@ -1016,6 +1016,22 @@ function escHtml(s) {
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;');
+}
+
+// After a delete, run a fresh scan in background — don't block UI
+function refreshAfterDelete() {
+    // Run the dry-run but don't show spinner — just refresh data when ready
+    fetch('/api/cleanup/dry-run', { method: 'POST', credentials: 'include' })
+        .then(res => res.ok ? res.json() : null)
+        .then(data => {
+            if (data) {
+                dryRunData = data;
+                renderResults(data);
+                loadHistory();
+                document.getElementById('btnDryRun').textContent = 'Run Dry Run';
+            }
+        })
+        .catch(() => {}); // Silent — toast already showed success
 }
 
 // Load cached results instantly, then history; fresh scan available via button

@@ -41,17 +41,24 @@ NOISE_PATTERNS = [
 ]
 
 
+_indexes_ensured = False
+
+
 def _connect(db_path: str) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path, timeout=60)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=30000")
     conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA cache_size=-16384")       # 16MB page cache (up from default 2MB)
     conn.row_factory = sqlite3.Row
     return conn
 
 
 def _ensure_indexes(conn: sqlite3.Connection):
-    """Create indexes needed for dedup queries if they don't exist."""
+    """Create indexes needed for dedup queries if they don't exist. Runs once per process."""
+    global _indexes_ensured
+    if _indexes_ensured:
+        return
     conn.execute("""
         CREATE INDEX IF NOT EXISTS idx_messages_session_role_index
         ON messages(session_id, role, message_index)
@@ -61,6 +68,7 @@ def _ensure_indexes(conn: sqlite3.Connection):
         ON messages(session_id)
     """)
     conn.commit()
+    _indexes_ensured = True
 
 
 def _ensure_cleanup_runs_table(conn: sqlite3.Connection):
@@ -234,14 +242,16 @@ def find_junk(db_path: str, limit: int = 500) -> dict:
         items = []
         by_category = {'empty': 0, 'orphaned': 0, 'single_char': 0}
 
-        # Empty / NULL content
+        # Combined: get empty items + count in one query using window function
         cur = conn.execute("""
-            SELECT id, content, role, session_id
+            SELECT id, content, role, session_id, COUNT(*) OVER() as total_cnt
             FROM messages
             WHERE content IS NULL OR TRIM(content) = ''
             LIMIT ?
         """, (limit,))
-        for row in cur.fetchall():
+        empty_rows = cur.fetchall()
+        total_empty = empty_rows[0]['total_cnt'] if empty_rows else 0
+        for row in empty_rows:
             items.append({
                 'id': row['id'],
                 'content': row['content'] or '',
@@ -251,27 +261,37 @@ def find_junk(db_path: str, limit: int = 500) -> dict:
             })
             by_category['empty'] += 1
 
-        # Orphaned messages (no matching session)
+        # Combined: orphaned items + count in one query
         remaining = limit - len(items)
         if remaining > 0:
             cur = conn.execute("""
-                SELECT m.id, m.content, m.role, m.session_id
+                SELECT m.id, m.content, m.role, m.session_id,
+                       COUNT(*) OVER() as total_cnt
                 FROM messages m
                 LEFT JOIN sessions s ON m.session_id = s.id
                 WHERE s.id IS NULL
                 LIMIT ?
             """, (remaining,))
-            for row in cur.fetchall():
-                items.append({
-                    'id': row['id'],
-                    'content': (row['content'] or '')[:200],
-                    'role': row['role'],
-                    'session_id': row['session_id'],
-                    'category': 'orphaned',
-                })
-                by_category['orphaned'] += 1
+            orphan_rows = cur.fetchall()
+            total_orphaned = orphan_rows[0]['total_cnt'] if orphan_rows else 0
+        else:
+            total_orphaned = conn.execute("""
+                SELECT COUNT(*) as cnt FROM messages m
+                LEFT JOIN sessions s ON m.session_id = s.id WHERE s.id IS NULL
+            """).fetchone()['cnt']
+            orphan_rows = []
 
-        # Single emoji (flagged only)
+        for row in orphan_rows:
+            items.append({
+                'id': row['id'],
+                'content': (row['content'] or '')[:200],
+                'role': row['role'],
+                'session_id': row['session_id'],
+                'category': 'orphaned',
+            })
+            by_category['orphaned'] += 1
+
+        # Single emoji — small sample only, no full DB count scan
         remaining = limit - len(items)
         if remaining > 0:
             cur = conn.execute("""
@@ -280,7 +300,7 @@ def find_junk(db_path: str, limit: int = 500) -> dict:
                 WHERE LENGTH(content) BETWEEN 1 AND 10
                   AND content IS NOT NULL
                 LIMIT ?
-            """, (remaining * 5,))  # fetch more, filter in Python
+            """, (remaining * 5,))
             emoji_added = 0
             for row in cur.fetchall():
                 if _is_single_emoji(row['content']):
@@ -296,22 +316,7 @@ def find_junk(db_path: str, limit: int = 500) -> dict:
                     if emoji_added >= remaining:
                         break
 
-        # Summary counts — empty and orphaned from DB, emoji uses sample count
-        total_empty = conn.execute(
-            "SELECT COUNT(*) as cnt FROM messages WHERE content IS NULL OR TRIM(content) = ''"
-        ).fetchone()['cnt']
-
-        total_orphaned = conn.execute("""
-            SELECT COUNT(*) as cnt FROM messages m
-            LEFT JOIN sessions s ON m.session_id = s.id
-            WHERE s.id IS NULL
-        """).fetchone()['cnt']
-
-        # Use the collected count for single_char (scanning 31K rows for
-        # ~313 emoji messages takes 0.5s — not worth it for a total count)
-        total_single_char = by_category['single_char']
-
-        total = total_empty + total_orphaned + total_single_char
+        total = total_empty + total_orphaned + by_category['single_char']
 
         return {
             'items': items,
@@ -320,7 +325,7 @@ def find_junk(db_path: str, limit: int = 500) -> dict:
                 'by_category': {
                     'empty': total_empty,
                     'orphaned': total_orphaned,
-                    'single_char': total_single_char,
+                    'single_char': by_category['single_char'],
                 }
             }
         }
@@ -347,34 +352,45 @@ def find_noise(db_path: str, limit: int = 500) -> dict:
     try:
         by_pattern = {}
         items = []
-        collected = 0
 
-        # Build a single query with OR'd LIKE clauses
+        # Step 1: Count totals using lightweight query (id + content only, no extra columns)
         like_clauses = " OR ".join(f"content LIKE ?" for _ in SQL_LIKE_FILTERS)
-        query = f"""
-            SELECT id, SUBSTR(content, 1, 300) as content_preview,
-                   content, role, session_id
-            FROM messages
-            WHERE content IS NOT NULL AND ({like_clauses})
-        """
-        cur = conn.execute(query, SQL_LIKE_FILTERS)
-
-        for row in cur.fetchall():
+        count_cur = conn.execute(
+            f"SELECT id, content FROM messages WHERE content IS NOT NULL AND ({like_clauses})",
+            SQL_LIKE_FILTERS
+        )
+        # Use fetchone() loop to avoid loading all 40K rows into memory at once
+        all_noise_ids = []
+        while True:
+            row = count_cur.fetchone()
+            if row is None:
+                break
             desc = _matches_noise_pattern(row['content'])
             if desc:
                 by_pattern[desc] = by_pattern.get(desc, 0) + 1
-                if collected < limit:
-                    items.append({
-                        'id': row['id'],
-                        'content': row['content_preview'],
-                        'role': row['role'],
-                        'session_id': row['session_id'],
-                        'pattern_desc': desc,
-                        'category': 'noise',
-                    })
-                    collected += 1
+                if len(all_noise_ids) < limit:
+                    all_noise_ids.append(row['id'])
 
         total = sum(by_pattern.values())
+
+        # Step 2: Fetch display details only for the limited sample
+        if all_noise_ids:
+            placeholders = ','.join('?' * len(all_noise_ids))
+            detail_cur = conn.execute(
+                f"SELECT id, SUBSTR(content, 1, 300) as content_preview, content, role, session_id "
+                f"FROM messages WHERE id IN ({placeholders})",
+                all_noise_ids
+            )
+            for row in detail_cur.fetchall():
+                desc = _matches_noise_pattern(row['content'])
+                items.append({
+                    'id': row['id'],
+                    'content': row['content_preview'],
+                    'role': row['role'],
+                    'session_id': row['session_id'],
+                    'pattern_desc': desc or 'noise',
+                    'category': 'noise',
+                })
 
         return {
             'items': items,
