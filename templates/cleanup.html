@@ -354,6 +354,9 @@
             <button class="tab-btn" onclick="switchTab('orphan_embeds', this)">
                 Orphan Embeds <span id="tabOrphanBadge"></span>
             </button>
+            <button class="tab-btn" onclick="switchTab('similar', this)">
+                Similar <span id="tabSimilarBadge"></span>
+            </button>
         </div>
 
         <!-- Duplicates Tab -->
@@ -458,6 +461,41 @@
                     <tbody id="orphanBody"></tbody>
                 </table>
             </div>
+        </div>
+
+        <!-- Similar (Cross-Session Duplicates) Tab -->
+        <div id="tab-similar" class="tab-pane">
+            <div style="margin-bottom: var(--space-md); display: flex; align-items: center; gap: var(--space-md); flex-wrap: wrap;">
+                <span style="color: var(--text-secondary); font-size: 13px;">Similarity:</span>
+                <select id="similarityLevel" style="background: var(--bg-input); border: 1px solid var(--border-input); border-radius: var(--radius-base); padding: 6px 12px; color: var(--text-primary); font-size: 13px;">
+                    <option value="exact">Exact (1.0) — identical content</option>
+                    <option value="high">High (0.95) — first 500 chars</option>
+                    <option value="medium">Medium (0.85) — first 200 chars</option>
+                </select>
+                <button class="btn btn-primary btn-sm" id="btnScanSimilar" onclick="scanSimilar()">Scan</button>
+                <div class="spinner" id="similarSpinner">
+                    <div class="spin-ring"></div>
+                    <span>Scanning...</span>
+                </div>
+            </div>
+            <div id="similarSummary" style="color: var(--text-secondary); font-size: 13px; margin-bottom: var(--space-md);"></div>
+            <div class="table-wrap" id="similarTableWrap" style="display:none">
+                <table>
+                    <thead>
+                        <tr>
+                            <th><input type="checkbox" id="selectAllSimilar" onchange="toggleAllSimilar(this.checked)"></th>
+                            <th>Content</th>
+                            <th>Role</th>
+                            <th>Score</th>
+                            <th>Copies</th>
+                            <th>Sessions</th>
+                            <th>Reclaimable</th>
+                        </tr>
+                    </thead>
+                    <tbody id="similarBody"></tbody>
+                </table>
+            </div>
+            <button class="btn btn-danger btn-sm" id="btnDeleteAllSimilar" onclick="confirmDeleteAllSimilar()" style="display:none; margin-top: var(--space-md);">Delete All Similar</button>
         </div>
 
         <!-- Bottom bar -->
@@ -764,6 +802,9 @@ function getSelectedIds() {
     selectedJunk.forEach(i => {
         if (junkItems[i]) ids.push(junkItems[i].id);
     });
+    selectedSimilar.forEach(i => {
+        if (similarGroups[i]) ids.push(...similarGroups[i].delete_ids);
+    });
     return ids;
 }
 
@@ -787,6 +828,7 @@ function updateSelectionCount() {
         if (selectedDupes.size) parts.push(selectedDupes.size + ' dup groups');
         if (selectedNoise.size) parts.push(selectedNoise.size + ' noise');
         if (selectedJunk.size) parts.push(selectedJunk.size + ' junk');
+        if (selectedSimilar.size) parts.push(selectedSimilar.size + ' similar groups');
         countEl.textContent = `${fmtNum(total)} messages (${parts.join(' + ')})`;
         deleteBtn.textContent = `Delete ${fmtNum(total)} Messages`;
         deleteBtn.disabled = false;
@@ -1078,6 +1120,139 @@ function refreshAfterDelete() {
             }
         })
         .catch(() => {}); // Silent — toast already showed success
+}
+
+// === Similar (Cross-Session Duplicates) ===
+let similarGroups = [];
+let selectedSimilar = new Set();
+
+async function scanSimilar() {
+    const btn = document.getElementById('btnScanSimilar');
+    const spinner = document.getElementById('similarSpinner');
+    const level = document.getElementById('similarityLevel').value;
+    btn.disabled = true;
+    spinner.classList.add('active');
+
+    try {
+        const res = await fetch('/api/cleanup/similar', {
+            method: 'POST', credentials: 'include',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ similarity: level }),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+        renderSimilar(data);
+    } catch (err) {
+        showToast('Similar scan failed: ' + err.message, true);
+    } finally {
+        btn.disabled = false;
+        spinner.classList.remove('active');
+    }
+}
+
+function renderSimilar(data) {
+    const s = data.summary;
+    similarGroups = data.groups || [];
+    similarGroups._summary = data.summary;
+    selectedSimilar.clear();
+
+    document.getElementById('tabSimilarBadge').textContent = s.total_removable ? `(${fmtNum(s.total_removable)})` : '';
+    document.getElementById('similarSummary').textContent =
+        fmtNum(s.total_groups) + ' groups, ' + fmtNum(s.total_removable) + ' removable messages, ~' +
+        (s.estimated_savings_mb || 0).toFixed(1) + ' MB reclaimable (score: ' + s.score + ')';
+
+    const body = document.getElementById('similarBody');
+    const wrap = document.getElementById('similarTableWrap');
+    const delBtn = document.getElementById('btnDeleteAllSimilar');
+
+    if (similarGroups.length === 0) {
+        body.innerHTML = '<tr><td colspan="7"><div class="empty-state"><div class="icon">&#10003;</div>No similar messages found at this threshold</div></td></tr>';
+        wrap.style.display = '';
+        delBtn.style.display = 'none';
+        return;
+    }
+
+    body.innerHTML = similarGroups.map((g, i) => `
+        <tr>
+            <td><input type="checkbox" class="similar-cb" data-idx="${i}" onchange="onCheckSimilar(${i}, this.checked)"></td>
+            <td><div class="content-preview" title="${escHtml(g.content_preview)}">${escHtml((g.content_preview || '').substring(0, 80))}</div></td>
+            <td><span class="badge badge-role">${escHtml(g.role || '\u2014')}</span></td>
+            <td class="num">${g.score}</td>
+            <td class="num-warn">${fmtNum(g.copies)}</td>
+            <td class="num">${fmtNum(g.sessions)}</td>
+            <td class="num">${fmtBytes(g.bytes_saved)}</td>
+        </tr>
+    `).join('');
+
+    wrap.style.display = '';
+    delBtn.textContent = 'Delete All Similar (' + fmtNum(s.total_removable) + ')';
+    delBtn.style.display = '';
+}
+
+function onCheckSimilar(idx, checked) {
+    if (checked) selectedSimilar.add(idx); else selectedSimilar.delete(idx);
+    updateSelectionCount();
+}
+
+function toggleAllSimilar(checked) {
+    document.querySelectorAll('.similar-cb').forEach(cb => {
+        const idx = parseInt(cb.getAttribute('data-idx'));
+        cb.checked = checked;
+        if (checked) selectedSimilar.add(idx); else selectedSimilar.delete(idx);
+    });
+    updateSelectionCount();
+}
+
+function getSelectedSimilarIds() {
+    const ids = [];
+    selectedSimilar.forEach(i => {
+        if (similarGroups[i]) ids.push(...similarGroups[i].delete_ids);
+    });
+    return ids;
+}
+
+function confirmDeleteAllSimilar() {
+    if (!similarGroups.length) return;
+    const s = similarGroups._summary || {};
+    let text = 'Delete ALL ' + fmtNum(s.total_removable || 0) + ' cross-session duplicate messages?\n\n';
+    text += 'From ' + fmtNum(s.total_groups || similarGroups.length) + ' groups.\n';
+    text += 'Keeps the oldest copy of each message.\n\nThis is permanent.';
+    document.getElementById('modalText').textContent = text;
+    document.getElementById('modalText').style.whiteSpace = 'pre-line';
+    document.getElementById('modalConfirmBtn').onclick = executeDeleteAllSimilar;
+    document.getElementById('modalBackdrop').classList.add('open');
+}
+
+async function executeDeleteAllSimilar() {
+    closeModal();
+    const btn = document.getElementById('btnDeleteAllSimilar');
+    btn.disabled = true;
+    const level = document.getElementById('similarityLevel').value;
+
+    try {
+        // Fetch all delete IDs from server
+        btn.textContent = 'Fetching IDs...';
+        const idsRes = await fetch('/api/cleanup/similar-ids', {
+            method: 'POST', credentials: 'include',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ similarity: level }),
+        });
+        if (!idsRes.ok) throw new Error(await idsRes.text());
+        const idsData = await idsRes.json();
+        const ids = idsData.ids;
+        if (!ids.length) { showToast('No similar messages to delete'); return; }
+
+        const result = await chunkedDelete(ids, btn);
+        const freedMB = (result.freed_bytes / (1024*1024)).toFixed(1);
+        showToast('Deleted ' + result.deleted.toLocaleString() + ' similar messages, freed ~' + freedMB + ' MB');
+        refreshAfterDelete();
+        scanSimilar();
+    } catch (err) {
+        showToast('Delete failed: ' + err.message, true);
+    } finally {
+        btn.textContent = 'Delete All Similar';
+        btn.disabled = false;
+    }
 }
 
 // Load cached results instantly, then history; fresh scan available via button

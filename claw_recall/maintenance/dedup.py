@@ -224,6 +224,100 @@ def find_exact_duplicates(db_path: str, limit: int = 200) -> dict:
         conn.close()
 
 
+def find_cross_session_duplicates(db_path: str, similarity: str = 'exact', limit: int = 200) -> dict:
+    """
+    Find messages with identical or near-identical content across DIFFERENT sessions.
+
+    Root cause: same conversation indexed from active session file, archive copy,
+    and/or backup — producing 2-10 copies of every message across session IDs.
+
+    Similarity tiers:
+        'exact'  (1.0)  — identical content, different session_id
+        'high'   (0.95) — first 500 chars normalized match
+        'medium' (0.85) — first 200 chars normalized match
+
+    Returns:
+        {
+            groups: [{content_preview, role, copies, sessions, keep_id, delete_ids, bytes_saved}],
+            summary: {total_groups, total_removable, estimated_savings_mb, similarity}
+        }
+    """
+    conn = _connect(db_path)
+    try:
+        # Choose grouping expression based on similarity tier
+        if similarity == 'medium':
+            group_expr = "LOWER(SUBSTR(TRIM(content), 1, 200))"
+            score = 0.85
+        elif similarity == 'high':
+            group_expr = "LOWER(SUBSTR(TRIM(content), 1, 500))"
+            score = 0.95
+        else:  # exact
+            group_expr = "content"
+            score = 1.0
+
+        # Summary: count groups and removable messages
+        summary_row = conn.execute(f"""
+            SELECT COUNT(*) as groups, SUM(total - 1) as removable,
+                   SUM(bytes * (total - 1)) as bytes_wasted
+            FROM (
+                SELECT COUNT(*) as total,
+                       AVG(LENGTH(content)) as bytes
+                FROM messages
+                WHERE content IS NOT NULL AND LENGTH(content) > 20
+                GROUP BY {group_expr}
+                HAVING COUNT(DISTINCT session_id) >= 2
+            )
+        """).fetchone()
+        total_groups = summary_row['groups'] or 0
+        total_removable = summary_row['removable'] or 0
+        bytes_wasted = summary_row['bytes_wasted'] or 0
+
+        # Get top groups for display — NO per-group sub-queries for speed
+        cur = conn.execute(f"""
+            SELECT {group_expr} as fingerprint,
+                   SUBSTR(content, 1, 200) as preview,
+                   role,
+                   COUNT(*) as copies,
+                   COUNT(DISTINCT session_id) as sessions,
+                   MIN(id) as keep_id,
+                   SUM(LENGTH(content)) as total_bytes
+            FROM messages
+            WHERE content IS NOT NULL AND LENGTH(content) > 20
+            GROUP BY {group_expr}
+            HAVING COUNT(DISTINCT session_id) >= 2
+            ORDER BY copies DESC
+            LIMIT ?
+        """, (limit,))
+
+        groups = []
+        for row in cur.fetchall():
+            groups.append({
+                'content_preview': row['preview'],
+                'role': row['role'],
+                'copies': row['copies'],
+                'sessions': row['sessions'],
+                'keep_id': row['keep_id'],
+                'fingerprint': row['fingerprint'][:200] if similarity != 'exact' else None,
+                'bytes_saved': row['total_bytes'] - (row['total_bytes'] // row['copies']),
+                'score': score,
+            })
+
+        estimated_savings_mb = round(bytes_wasted / (1024 * 1024), 2)
+
+        return {
+            'groups': groups,
+            'summary': {
+                'total_groups': total_groups,
+                'total_removable': total_removable,
+                'estimated_savings_mb': estimated_savings_mb,
+                'similarity': similarity,
+                'score': score,
+            }
+        }
+    finally:
+        conn.close()
+
+
 def find_junk(db_path: str, limit: int = 500) -> dict:
     """
     Find junk/noise messages:
@@ -580,6 +674,41 @@ def get_all_noise_ids(db_path: str) -> list:
             if _matches_noise_pattern(row['content']):
                 ids.append(row['id'])
         return ids
+    finally:
+        conn.close()
+
+
+def get_cross_session_delete_ids(db_path: str, similarity: str = 'exact') -> list:
+    """Return all cross-session duplicate message IDs for bulk delete.
+
+    Keeps the oldest (MIN id) per group, returns all others.
+    """
+    conn = _connect(db_path)
+    try:
+        if similarity == 'medium':
+            group_expr = "LOWER(SUBSTR(TRIM(content), 1, 200))"
+        elif similarity == 'high':
+            group_expr = "LOWER(SUBSTR(TRIM(content), 1, 500))"
+        else:
+            group_expr = "content"
+
+        # Single query: find all IDs that are NOT the MIN(id) per content group
+        cur = conn.execute(f"""
+            SELECT id FROM messages
+            WHERE content IS NOT NULL AND LENGTH(content) > 20
+              AND id NOT IN (
+                  SELECT MIN(id) FROM messages
+                  WHERE content IS NOT NULL AND LENGTH(content) > 20
+                  GROUP BY {group_expr}
+              )
+              AND {group_expr} IN (
+                  SELECT {group_expr} FROM messages
+                  WHERE content IS NOT NULL AND LENGTH(content) > 20
+                  GROUP BY {group_expr}
+                  HAVING COUNT(DISTINCT session_id) >= 2
+              )
+        """)
+        return [r['id'] for r in cur.fetchall()]
     finally:
         conn.close()
 

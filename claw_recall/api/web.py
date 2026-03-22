@@ -678,6 +678,8 @@ from claw_recall.maintenance.dedup import (
     get_cached_dry_run as _get_cached_dry_run,
     get_all_noise_ids as _get_all_noise_ids,
     get_all_junk_ids as _get_all_junk_ids,
+    find_cross_session_duplicates as _find_cross_session_duplicates,
+    get_cross_session_delete_ids as _get_cross_session_delete_ids,
 )
 
 
@@ -757,6 +759,19 @@ def cleanup_noise_ids():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route('/api/cleanup/similar-ids', methods=['POST'])
+def cleanup_similar_ids():
+    """Return all cross-session duplicate IDs for bulk delete."""
+    try:
+        data = request.get_json(force=True) if request.data else {}
+        similarity = data.get('similarity', 'exact')
+        ids = _get_cross_session_delete_ids(str(DB_PATH), similarity=similarity)
+        return jsonify({'ids': ids, 'total': len(ids)})
+    except Exception as e:
+        logging.exception("Get similar IDs failed")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route('/api/cleanup/junk-ids')
 def cleanup_junk_ids():
     """Return all junk message IDs for bulk delete."""
@@ -765,6 +780,21 @@ def cleanup_junk_ids():
         return jsonify({'ids': ids, 'total': len(ids)})
     except Exception as e:
         logging.exception("Get junk IDs failed")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/cleanup/similar', methods=['POST'])
+def cleanup_similar():
+    """Scan for cross-session duplicates at a given similarity level."""
+    try:
+        data = request.get_json(force=True) if request.data else {}
+        similarity = data.get('similarity', 'exact')  # exact, high, medium
+        if similarity not in ('exact', 'high', 'medium'):
+            return jsonify({"error": "similarity must be 'exact', 'high', or 'medium'"}), 400
+        result = _find_cross_session_duplicates(str(DB_PATH), similarity=similarity)
+        return jsonify(result)
+    except Exception as e:
+        logging.exception("Similar scan failed")
         return jsonify({"error": str(e)}), 500
 
 
