@@ -748,7 +748,7 @@ def get_cross_session_delete_ids(db_path: str, similarity: str = 'exact') -> lis
 
 
 def get_all_junk_ids(db_path: str) -> list:
-    """Return all junk message IDs (empty + orphaned). For bulk delete."""
+    """Return all junk message IDs (empty + orphaned + single emoji). For bulk delete."""
     conn = _connect(db_path)
     try:
         ids = []
@@ -765,6 +765,16 @@ def get_all_junk_ids(db_path: str) -> list:
             WHERE s.id IS NULL
         """)
         ids.extend(r['id'] for r in cur.fetchall())
+
+        # Single emoji messages
+        cur = conn.execute("""
+            SELECT id, content FROM messages
+            WHERE LENGTH(content) BETWEEN 1 AND 10
+              AND content IS NOT NULL
+        """)
+        for row in cur.fetchall():
+            if _is_single_emoji(row['content']):
+                ids.append(row['id'])
 
         return ids
     finally:
