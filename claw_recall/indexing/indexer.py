@@ -52,6 +52,35 @@ def _load_exclude_patterns() -> list[str]:
                 _exclude_patterns.append(line)
     return _exclude_patterns
 
+import re as _re
+
+# Content-level noise filter — these messages are skipped during indexing.
+# Keeps the DB clean at ingest time rather than cleaning up after the fact.
+_NOISE_CONTENT_PATTERNS = [
+    _re.compile(r'^HEARTBEAT_OK$'),
+    _re.compile(r'^NO_REPLY$'),
+    _re.compile(r'^Read HEARTBEAT\.md'),
+    _re.compile(r'^You are running a boot check'),
+    _re.compile(r'Gateway restart(?:ed|ing)\b.*(?:back online|reconnect)', _re.IGNORECASE),
+    _re.compile(r'^Gateway is back up'),
+    _re.compile(r'^Gateway restarted — back online'),
+    _re.compile(r'OpenClaw Health Check Report'),
+    _re.compile(r'^SECURITY NOTICE: The following content is from an EXTERNAL'),
+    _re.compile(r'^If BOOT\.md asks you to send a message'),
+    _re.compile(r'^If nothing needs attention.*reply with ONLY: NO_REPLY', _re.DOTALL),
+]
+
+
+def _is_noise_content(content: str) -> bool:
+    """Return True if content matches a known noise pattern and should be skipped."""
+    if not content:
+        return False
+    for pattern in _NOISE_CONTENT_PATTERNS:
+        if pattern.search(content):
+            return True
+    return False
+
+
 def is_excluded(filepath: Path) -> bool:
     """Check if a file should be excluded from indexing based on exclude.conf patterns."""
     name = filepath.name
@@ -377,6 +406,10 @@ def extract_messages(filepath: Path, start_offset: int = 0, start_index: int = 0
 
             # Redact secrets before storing
             content = redact_secrets(content)
+
+            # Skip noise messages (heartbeats, boot checks, gateway status, etc.)
+            if _is_noise_content(content):
+                continue
 
             timestamp = _parse_timestamp(entry)
             if timestamp is None:
