@@ -65,9 +65,6 @@ jobs:
 
       - name: Run tests
         if: hashFiles('tests/') != ''
-        # continue-on-error: tests may need VPS-only config/services.
-        # Ruff + py_compile + JS validation are the hard gates.
-        continue-on-error: true
         run: python -m pytest tests/ -v -W ignore::pytest.PytestUnraisableExceptionWarning
 
       - name: JS validation (inline scripts)
