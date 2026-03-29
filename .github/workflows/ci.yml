@@ -41,7 +41,7 @@ jobs:
         run: pip install ruff
 
       - name: Ruff lint (undefined names only)
-        run: ruff check --select F821 .
+        run: ruff check --isolated --select F821 .
 
       - name: Syntax check Python files
         run: |
