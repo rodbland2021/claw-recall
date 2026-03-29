@@ -65,7 +65,7 @@ jobs:
 
       - name: Run tests
         if: hashFiles('tests/') != ''
-        run: python -m pytest tests/ -v -W ignore::pytest.PytestUnraisableExceptionWarning
+        run: python -m pytest tests/ -v
 
       - name: JS validation (inline scripts)
         run: |
