@@ -32,6 +32,9 @@ def _get_openai_client() -> Optional['OpenAI']:
     global _openai_client
     if not OPENAI_AVAILABLE:
         return None
+    import os
+    if not os.environ.get('OPENAI_API_KEY'):
+        return None
     if _openai_client is None:
         _openai_client = OpenAI()
     return _openai_client
