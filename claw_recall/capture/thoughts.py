@@ -32,8 +32,13 @@ def _get_openai_client() -> Optional['OpenAI']:
     global _openai_client
     if not OPENAI_AVAILABLE:
         return None
-    if _openai_client is None:
-        _openai_client = OpenAI()
+    # Return existing client if already set (e.g. by tests via monkeypatch)
+    if _openai_client is not None:
+        return _openai_client
+    import os
+    if not os.environ.get('OPENAI_API_KEY'):
+        return None
+    _openai_client = OpenAI()
     return _openai_client
 
 
