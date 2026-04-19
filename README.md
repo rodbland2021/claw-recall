@@ -483,7 +483,7 @@ Claw Recall is a solo-maintained project. Donations go directly toward hosting c
 - **Star this repo** to help others find it
 - **Report bugs** via [GitHub Issues](https://github.com/rodbland2021/claw-recall/issues)
 - [Buy Me a Coffee](https://buymeacoffee.com/rodbland)
-- Make a Bitcoin donation — `bc1q85c72qmrecv3wv3t3j0hupyqj3t2tlasr8kcq6`
+- Make a Bitcoin donation — `bc1qndzwx25exhn58kdmry2yee468smsk6wpsqpz9x`
 
 ## License
 
