@@ -2,7 +2,7 @@
 numpy>=1.24.0
 
 # For semantic search (optional)
-openai>=1.0.0
+openai>=2.32.0
 
 # For MCP server
 mcp>=1.0.0
