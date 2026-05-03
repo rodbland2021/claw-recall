@@ -25,10 +25,11 @@ For a quick overview, see the [README](../README.md).
 
 ### Conversation Sessions
 
-Claw Recall indexes `.jsonl` session files from two agent platforms:
+Claw Recall indexes `.jsonl` session files from three agent platforms:
 
 - **OpenClaw** — `~/.openclaw/agents/` (active) and `~/.openclaw/agents-archive/` (completed)
 - **Claude Code** — `~/.claude/projects/` (auto-detected by path and JSON structure)
+- **Codex CLI** — `~/.codex/sessions/` (auto-detected by path and JSON structure)
 
 **Real-time indexing** (recommended):
 ```bash

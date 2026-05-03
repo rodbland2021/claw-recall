@@ -88,6 +88,7 @@ Tell Claw Recall where your agent conversations are stored:
 |----------|----------------------|
 | **OpenClaw** | `~/.openclaw/agents-archive/` (completed) and `~/.openclaw/agents/` (active) |
 | **Claude Code** | `~/.claude/projects/` |
+| **Codex CLI** | `~/.codex/sessions/` |
 
 Run the indexer on your session directory:
 
@@ -97,6 +98,9 @@ python3 -m claw_recall.indexing.indexer --source ~/.openclaw/agents-archive/ --i
 
 # Claude Code users:
 python3 -m claw_recall.indexing.indexer --source ~/.claude/projects/ --incremental
+
+# Codex CLI users:
+python3 -m claw_recall.indexing.indexer --source ~/.codex/sessions/ --incremental
 ```
 
 You should see output like:

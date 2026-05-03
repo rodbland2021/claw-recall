@@ -41,6 +41,7 @@ except ImportError:
 
 WATCH_DIRS = [
     Path.home() / ".claude" / "projects",                      # Claude Code sessions
+    Path.home() / ".codex" / "sessions",                       # Codex CLI sessions
     Path.home() / ".openclaw" / "agents" / "main" / "sessions",  # Claude (OpenClaw) active
     Path.home() / ".openclaw" / "agents-archive",              # Claude (OpenClaw) archived
 ]
@@ -201,7 +202,7 @@ def _rsync_push(filepath: Path, dry_run: bool = False) -> dict:
 
     source_path = str(filepath)
     # Build VPS staging path preserving directory structure for agent detection
-    for marker in ['.claude/projects', '.openclaw/agents', '.openclaw/agents-archive']:
+    for marker in ['.claude/projects', '.codex/sessions', '.openclaw/agents', '.openclaw/agents-archive']:
         idx = source_path.find(marker)
         if idx >= 0:
             path_suffix = source_path[idx:]
@@ -210,7 +211,7 @@ def _rsync_push(filepath: Path, dry_run: bool = False) -> dict:
         path_suffix = filepath.name
 
     # Validate path_suffix contains expected markers (defense-in-depth)
-    if not any(m in path_suffix for m in ['.claude/', '.openclaw/']):
+    if not any(m in path_suffix for m in ['.claude/', '.codex/', '.openclaw/']):
         log.warning(f"Unexpected path_suffix: {path_suffix}")
         return {"status": "error", "reason": "unexpected_path"}
     remote_path = f"{VPS_REMOTE_STAGING}/{os.path.dirname(path_suffix)}/"

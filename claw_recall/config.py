@@ -19,6 +19,7 @@ DB_PATH = Path(os.environ.get("CLAW_RECALL_DB", str(REPO_DIR / "convo_memory.db"
 
 DEFAULT_ARCHIVE_PATH = Path.home() / ".openclaw" / "agents-archive"
 DEFAULT_SESSIONS_PATH = Path.home() / ".openclaw" / "agents"
+DEFAULT_CODEX_SESSIONS_PATH = Path.home() / ".codex" / "sessions"
 
 EXCLUDE_CONF_PATH = REPO_DIR / "exclude.conf"
 AGENTS_JSON_PATH = REPO_DIR / "agents.json"
@@ -42,6 +43,7 @@ WATCH_DIRS = [
     Path.home() / ".openclaw" / "agents",
     Path.home() / ".openclaw" / "agents-archive",
     Path.home() / ".claude" / "projects",
+    DEFAULT_CODEX_SESSIONS_PATH,
 ]
 
 # ── Agent name mapping ─────────────────────────────────────────────────────────

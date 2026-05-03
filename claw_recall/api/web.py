@@ -212,8 +212,9 @@ def _extract_path_suffix(source_path: str) -> str:
     Examples:
         /home/user/.claude/projects/-test/abc.jsonl -> .claude/projects/-test/abc.jsonl
         /home/user/.openclaw/agents/main/sessions/x.jsonl -> .openclaw/agents/main/sessions/x.jsonl
+        /home/user/.codex/sessions/2026/05/03/x.jsonl -> .codex/sessions/2026/05/03/x.jsonl
     """
-    for marker in ['.claude/projects', '.openclaw/agents', '.openclaw/agents-archive']:
+    for marker in ['.claude/projects', '.openclaw/agents', '.openclaw/agents-archive', '.codex/sessions']:
         idx = source_path.find(marker)
         if idx >= 0:
             return source_path[idx:]

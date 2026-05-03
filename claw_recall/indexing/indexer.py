@@ -26,6 +26,7 @@ from claw_recall.config import (
     DB_PATH,
     DEFAULT_ARCHIVE_PATH,
     DEFAULT_SESSIONS_PATH,
+    DEFAULT_CODEX_SESSIONS_PATH,
     EXCLUDE_CONF_PATH,
     EMBEDDING_MODEL,
     EMBEDDING_BATCH_SIZE,
@@ -68,6 +69,7 @@ _NOISE_CONTENT_PATTERNS = [
     _re.compile(r'^SECURITY NOTICE: The following content is from an EXTERNAL'),
     _re.compile(r'^If BOOT\.md asks you to send a message'),
     _re.compile(r'^If nothing needs attention.*reply with ONLY: NO_REPLY', _re.DOTALL),
+    _re.compile(r'^# AGENTS\.md instructions for '),
 ]
 
 
@@ -155,7 +157,7 @@ def extract_session_metadata(filepath: Path) -> dict:
     Resolution order (most reliable first):
     1. Directory path -- agents/{name}/sessions/ or agents-archive-{name}/
     2. Filename prefix -- agent-{name}-{channel}-... format
-    3. UUID detection -- Claude Code sessions in .claude/projects/
+    3. Codex/Claude Code path detection
     4. Fallback -- first filename part if it's a known agent name
     """
     filename = filepath.name
@@ -242,6 +244,12 @@ def extract_session_metadata(filepath: Path) -> dict:
                         metadata['channel'] = 'telegram'
                 except Exception:
                     pass
+
+    # Pattern: .codex/sessions/YYYY/MM/DD/rollout-*.jsonl (Codex CLI sessions)
+    if metadata['agent_id'] == 'unknown':
+        if '.codex/sessions' in path_str:
+            metadata['agent_id'] = _normalize_agent_id('codex')
+            metadata['channel'] = 'terminal'
 
     # === PHASE 2: Filename-based detection ===
 
@@ -332,8 +340,9 @@ def _extract_text(raw_content) -> Optional[str]:
     if isinstance(raw_content, str):
         return raw_content
     if isinstance(raw_content, list):
+        text_part_types = {'text', 'input_text', 'output_text'}
         parts = [p.get('text', '') for p in raw_content
-                 if isinstance(p, dict) and p.get('type') == 'text']
+                 if isinstance(p, dict) and p.get('type') in text_part_types]
         return ' '.join(parts) if parts else None
     return None
 
@@ -392,6 +401,7 @@ def extract_messages(filepath: Path, start_offset: int = 0, start_index: int = 0
             role = None
             raw_content = None
             is_cc = False
+            is_codex = False
 
             if entry_type == 'message':
                 # OpenClaw: {"type": "message", "message": {...}}
@@ -404,6 +414,16 @@ def extract_messages(filepath: Path, start_offset: int = 0, start_index: int = 0
                 role = msg.get('role', entry_type)
                 raw_content = msg.get('content', '')
                 is_cc = True
+            elif entry_type == 'response_item':
+                # Codex CLI: {"type": "response_item", "payload": {"type": "message", ...}}
+                payload = entry.get('payload') or {}
+                if payload.get('type') != 'message':
+                    continue
+                role = payload.get('role')
+                if role not in ('user', 'assistant'):
+                    continue
+                raw_content = payload.get('content', '')
+                is_codex = True
             elif 'role' in entry and 'content' in entry and entry_type is None:
                 # Legacy: {"role": "user", "content": "..."}
                 role = entry.get('role')
@@ -419,8 +439,8 @@ def extract_messages(filepath: Path, start_offset: int = 0, start_index: int = 0
                 continue
             content = content.strip()
 
-            # Strip CC system tags
-            if is_cc:
+            # Strip CC/Codex system tags
+            if is_cc or is_codex:
                 content = CC_SYSTEM_TAG_RE.sub('', content).strip()
                 if not content:
                     continue
@@ -821,7 +841,7 @@ def main():
         import time as _time
         cutoff = _time.time() - (20 * 60)  # 20 minutes ago
         results = {'indexed': 0, 'skipped': 0, 'errors': 0, 'total_messages': 0, 'total_embeddings': 0}
-        all_dirs = [args.source, DEFAULT_SESSIONS_PATH]
+        all_dirs = [args.source, DEFAULT_SESSIONS_PATH, DEFAULT_CODEX_SESSIONS_PATH]
         for scan_dir in all_dirs:
             if not scan_dir.exists():
                 continue
@@ -862,6 +882,15 @@ def main():
                     results['errors'] += r['errors']
                     results['total_messages'] += r['total_messages']
                     results['total_embeddings'] += r['total_embeddings']
+
+        if DEFAULT_CODEX_SESSIONS_PATH.exists():
+            print(f"\nIndexing Codex sessions: {DEFAULT_CODEX_SESSIONS_PATH}")
+            r = index_directory(DEFAULT_CODEX_SESSIONS_PATH, conn, args.embeddings, openai_client)
+            results['indexed'] += r['indexed']
+            results['skipped'] += r['skipped']
+            results['errors'] += r['errors']
+            results['total_messages'] += r['total_messages']
+            results['total_embeddings'] += r['total_embeddings']
 
     # Backfill embeddings for any previously-indexed messages that lack them
     if args.embeddings and openai_client:

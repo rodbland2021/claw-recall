@@ -70,6 +70,15 @@ if [ -d ~/.claude/projects ]; then
     [ -n "$ERRORS" ] && TOTAL_ERRORS=$((TOTAL_ERRORS + ERRORS))
 fi
 
+# Index local Codex CLI sessions
+if [ -d ~/.codex/sessions ]; then
+    OUTPUT=$(python3 -m claw_recall.indexing.indexer --source ~/.codex/sessions/ --incremental --embeddings 2>&1)
+    INDEXED=$(echo "$OUTPUT" | grep -oP 'Indexed: \K\d+')
+    ERRORS=$(echo "$OUTPUT" | grep -oP 'Errors: \K\d+')
+    [ -n "$INDEXED" ] && TOTAL_INDEXED=$((TOTAL_INDEXED + INDEXED))
+    [ -n "$ERRORS" ] && TOTAL_ERRORS=$((TOTAL_ERRORS + ERRORS))
+fi
+
 if [ "$TOTAL_INDEXED" -gt 0 ] || [ "$TOTAL_ERRORS" -gt 0 ]; then
     log "Done: indexed=$TOTAL_INDEXED errors=$TOTAL_ERRORS"
 else
