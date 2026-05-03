@@ -1,0 +1,13 @@
+key: claw-recall
+name: Claw Recall
+service: convo-memory-web
+port: 8765
+url: https://recall.srv912889.hstgr.cloud/
+tier: internal
+auth: oauth2
+purpose: Searchable AI memory - indexed conversation messages and captured thoughts across all agents
+traefik: recall
+sources:
+  - OpenClaw session JSONL
+  - MCP capture_thought
+  - Gmail / Slack / Drive captures via capture_sources.py

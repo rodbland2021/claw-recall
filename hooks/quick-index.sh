@@ -47,6 +47,9 @@ index_dir ~/.openclaw/agents-chat-sessions/ "Chat sessions"
 # Claude Code server sessions (local terminal agent)
 index_dir ~/.claude/projects/ "CC-VPS sessions" "--include-active"
 
+# Codex CLI sessions (local terminal agent)
+index_dir ~/.codex/sessions/ "Codex sessions"
+
 if [ "$TOTAL_INDEXED" -gt 0 ] || [ "$TOTAL_ERRORS" -gt 0 ]; then
     log "Done: indexed=$TOTAL_INDEXED errors=$TOTAL_ERRORS"
 else

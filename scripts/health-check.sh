@@ -19,7 +19,7 @@
 #   CLAW_RECALL_STATE_FILE     State file for alert dedup (default: /tmp/claw-recall-health-state.json)
 #   CLAW_RECALL_EMB_GAP_THRESHOLD  Embedding gap alert threshold (default: 400000)
 #   CLAW_RECALL_SESSION_DIRS   Colon-separated session directories to check for indexing
-#                              (default: ~/.openclaw/agents-archive/:~/.openclaw/agents/:~/.claude/projects/)
+#                              (default: ~/.openclaw/agents-archive/:~/.openclaw/agents/:~/.claude/projects/:~/.codex/sessions/)
 #
 # Example crontab entry:
 #   */15 * * * * CLAW_RECALL_MCP_URL=http://10.0.0.1:8766/health \
@@ -37,7 +37,7 @@ ALERT_SCRIPT="${CLAW_RECALL_ALERT_SCRIPT:-}"
 LOG="${CLAW_RECALL_LOG:-/tmp/claw-recall-health.log}"
 STATE_FILE="${CLAW_RECALL_STATE_FILE:-/tmp/claw-recall-health-state.json}"
 EMB_GAP_THRESHOLD="${CLAW_RECALL_EMB_GAP_THRESHOLD:-400000}"
-SESSION_DIRS="${CLAW_RECALL_SESSION_DIRS:-$HOME/.openclaw/agents-archive/:$HOME/.openclaw/agents/:$HOME/.claude/projects/}"
+SESSION_DIRS="${CLAW_RECALL_SESSION_DIRS:-$HOME/.openclaw/agents-archive/:$HOME/.openclaw/agents/:$HOME/.claude/projects/:$HOME/.codex/sessions/}"
 
 log() { echo "[$(date -u '+%Y-%m-%d %H:%M:%S UTC')] $1" >> "$LOG"; }
 

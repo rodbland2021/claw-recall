@@ -1019,6 +1019,13 @@ class TestPathSuffix:
         )
         assert result == ".openclaw/agents-archive/main-abc-123.jsonl"
 
+    def test_codex_sessions_path(self):
+        from claw_recall.api.web import _extract_path_suffix
+        result = _extract_path_suffix(
+            "/home/testuser/.codex/sessions/2026/05/03/rollout-2026-05-03T01-02-03-abc.jsonl"
+        )
+        assert result == ".codex/sessions/2026/05/03/rollout-2026-05-03T01-02-03-abc.jsonl"
+
     def test_fallback_basename(self):
         from claw_recall.api.web import _extract_path_suffix
         result = _extract_path_suffix("/some/random/path/file.jsonl")
@@ -1088,6 +1095,35 @@ class TestSourceFileOverride:
         r2 = index_session_file(session_file, conn, source_file_override=override_path)
         assert r2['status'] == 'skipped'
         assert r2['reason'] == 'already indexed'
+
+    def test_codex_session_indexes_user_and_assistant_messages(self, test_db, tmp_path):
+        conn, _ = test_db
+        session_dir = tmp_path / ".codex" / "sessions" / "2026" / "05" / "03"
+        session_dir.mkdir(parents=True)
+        session_file = session_dir / "rollout-2026-05-03T01-02-03-abc.jsonl"
+        session_file.write_text(
+            '{"timestamp":"2026-05-03T01:02:03Z","type":"session_meta","payload":{"id":"abc"}}\n'
+            '{"timestamp":"2026-05-03T01:02:04Z","type":"response_item","payload":{"type":"message","role":"developer","content":[{"type":"input_text","text":"skip developer"}]}}\n'
+            '{"timestamp":"2026-05-03T01:02:05Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"include Codex user request"}]}}\n'
+            '{"timestamp":"2026-05-03T01:02:06Z","type":"event_msg","payload":{"type":"user_message","message":"duplicate event"}}\n'
+            '{"timestamp":"2026-05-03T01:02:07Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"include Codex assistant response"}]}}\n'
+        )
+
+        from claw_recall.indexing.indexer import index_session_file
+        result = index_session_file(session_file, conn)
+
+        assert result['status'] == 'indexed'
+        assert result['agent'] == 'codex'
+        assert result['messages'] == 2
+
+        rows = conn.execute(
+            "SELECT role, content FROM messages WHERE session_id = ? ORDER BY message_index",
+            (session_file.stem,),
+        ).fetchall()
+        assert rows == [
+            ("user", "include Codex user request"),
+            ("assistant", "include Codex assistant response"),
+        ]
 
 
 class TestIndexSessionEndpoint:
@@ -1420,6 +1456,7 @@ class TestWatcherHelpers:
 
     def test_should_handle(self):
         assert self.watcher._should_handle("/path/to/session.jsonl") is True
+        assert self.watcher._should_handle("/home/user/.codex/sessions/2026/05/03/session.jsonl") is True
         assert self.watcher._should_handle("/path/to/session.json") is False
         assert self.watcher._should_handle("/path/subagents/agent.jsonl") is False
         assert self.watcher._should_handle("/path/.deleted.session.jsonl") is False
